@@ -1,0 +1,65 @@
+suite: postgres
+templates:
+  - postgres.yaml
+set:
+  fullnameOverride: fn
+tests:
+  - it: renders nothing by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders a CNPG cluster
+    set:
+      postgres.enabled: true
+    asserts:
+      - isKind:
+          of: Cluster
+      - equal:
+          path: metadata.name
+          value: fn-postgres
+      - equal:
+          path: spec.bootstrap.initdb
+          value:
+            database: frigate-notify
+            owner: frigate-notify
+      - equal:
+          path: spec.instances
+          value: 1
+      - exists:
+          path: spec.storage.size
+      - notExists:
+          path: spec.imageName
+
+  - it: sets imageName when given
+    set:
+      postgres.enabled: true
+      postgres.imageName: ghcr.io/cloudnative-pg/postgresql:18.4
+    asserts:
+      - equal:
+          path: spec.imageName
+          value: ghcr.io/cloudnative-pg/postgresql:18.4
+
+  - it: merges extraSpec without dropping base fields
+    set:
+      postgres.enabled: true
+      postgres.extraSpec:
+        postgresql:
+          parameters:
+            max_connections: "50"
+    asserts:
+      - equal:
+          path: spec.postgresql.parameters.max_connections
+          value: "50"
+      - equal:
+          path: spec.bootstrap.initdb.database
+          value: frigate-notify
+
+  - it: sets the storage class only when given
+    set:
+      postgres.enabled: true
+      postgres.storage.storageClass: fast
+    asserts:
+      - equal:
+          path: spec.storage.storageClass
+          value: fast

@@ -1,0 +1,159 @@
+suite: mongo
+templates:
+  - mongo.yaml
+set:
+  fullnameOverride: fn
+tests:
+  - it: renders nothing by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: statefulset mode renders secret, service and statefulset
+    set:
+      mongo.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 3
+      - documentSelector: {path: kind, value: Secret}
+        matchRegex:
+          path: stringData.password
+          pattern: ^[A-Za-z0-9]{32}$
+      - documentSelector: {path: kind, value: Secret}
+        matchRegex:
+          path: stringData.url
+          pattern: ^mongodb://frigate-notify:[A-Za-z0-9]{32}@fn-mongo:27017/\?authSource=admin$
+      - documentSelector: {path: kind, value: Secret}
+        equal:
+          path: metadata.annotations["helm.sh/resource-policy"]
+          value: keep
+      - documentSelector: {path: kind, value: Service}
+        equal:
+          path: spec.ports[0].port
+          value: 27017
+      - documentSelector: {path: kind, value: StatefulSet}
+        equal:
+          path: spec.template.spec.securityContext.runAsUser
+          value: 999
+      - documentSelector: {path: kind, value: StatefulSet}
+        equal:
+          path: spec.template.spec.containers[0].env[1].valueFrom.secretKeyRef
+          value:
+            name: fn-mongo-auth
+            key: password
+
+  - it: statefulset mode appends extraEnv and merges extraSpec
+    set:
+      mongo.enabled: true
+      mongo.extraEnv:
+        - name: FOO
+          value: bar
+      mongo.extraSpec:
+        template:
+          spec:
+            nodeSelector:
+              disk: ssd
+    asserts:
+      - documentSelector: {path: kind, value: StatefulSet}
+        equal:
+          path: spec.template.spec.containers[0].env[2]
+          value:
+            name: FOO
+            value: bar
+      - documentSelector: {path: kind, value: StatefulSet}
+        equal:
+          path: spec.template.spec.nodeSelector.disk
+          value: ssd
+
+  - it: operator mode renders the CR and a url-less secret
+    set:
+      mongo.enabled: true
+      mongo.mode: operator
+      mongo.image: mongo:8.0.32
+      mongo.members: 3
+    asserts:
+      - hasDocuments:
+          count: 2
+      - documentSelector: {path: kind, value: MongoDBCommunity}
+        equal:
+          path: spec.version
+          value: "8.0.32"
+      - documentSelector: {path: kind, value: MongoDBCommunity}
+        equal:
+          path: spec.members
+          value: 3
+      - documentSelector: {path: kind, value: MongoDBCommunity}
+        equal:
+          path: spec.type
+          value: ReplicaSet
+      - documentSelector: {path: kind, value: MongoDBCommunity}
+        equal:
+          path: spec.users[0].roles[0]
+          value:
+            name: readWrite
+            db: frigate-notify
+      - documentSelector: {path: kind, value: Secret}
+        notExists:
+          path: stringData.url
+
+  - it: operator mode merges extraSpec
+    set:
+      mongo.enabled: true
+      mongo.mode: operator
+      mongo.extraSpec:
+        additionalMongodConfig:
+          storage.wiredTiger.engineConfig.cacheSizeGB: 1
+    asserts:
+      - documentSelector: {path: kind, value: MongoDBCommunity}
+        equal:
+          path: spec.additionalMongodConfig["storage.wiredTiger.engineConfig.cacheSizeGB"]
+          value: 1
+      - documentSelector: {path: kind, value: MongoDBCommunity}
+        equal:
+          path: spec.security.authentication.modes[0]
+          value: SCRAM
+
+  - it: reuses an existing password
+    set:
+      mongo.enabled: true
+    kubernetesProvider:
+      scheme:
+        v1/Secret:
+          gvr:
+            version: v1
+            resource: secrets
+          namespaced: true
+      objects:
+        - apiVersion: v1
+          kind: Secret
+          metadata:
+            name: fn-mongo-auth
+            namespace: NAMESPACE
+          data:
+            password: aGVsbG8=
+    asserts:
+      - documentSelector: {path: kind, value: Secret}
+        equal:
+          path: stringData.password
+          value: hello
+
+  - it: sets the storage class on the statefulset claim
+    set:
+      mongo.enabled: true
+      mongo.storage.storageClass: fast
+    asserts:
+      - documentSelector: {path: kind, value: StatefulSet}
+        equal:
+          path: spec.volumeClaimTemplates[0].spec.storageClassName
+          value: fast
+
+  - it: sets the storage class on the operator claim
+    set:
+      mongo.enabled: true
+      mongo.mode: operator
+      mongo.storage.storageClass: fast
+    asserts:
+      - documentSelector: {path: kind, value: MongoDBCommunity}
+        equal:
+          path: spec.statefulSet.spec.volumeClaimTemplates[0].spec.storageClassName
+          value: fast

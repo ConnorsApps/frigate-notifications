@@ -1,0 +1,110 @@
+{{- define "frigate-notify.valkeySpec" -}}
+{{- $ctx := dict "root" . "component" "valkey" }}
+replicas: 1
+serviceName: {{ include "frigate-notify.valkeyName" . }}
+selector:
+  matchLabels:
+    {{- include "frigate-notify.componentSelector" $ctx | nindent 4 }}
+template:
+  metadata:
+    labels:
+      {{- include "frigate-notify.componentSelector" $ctx | nindent 6 }}
+  spec:
+    # Image uid; the app's 65532 can't write the volume.
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 999
+      runAsGroup: 999
+      fsGroup: 999
+      seccompProfile:
+        type: RuntimeDefault
+    containers:
+      - name: valkey
+        image: {{ .Values.valkey.image | quote }}
+        args:
+          - valkey-server
+          # No auth: protected mode would refuse other pods.
+          - --protected-mode
+          - "no"
+          - --dir
+          - /data
+          {{- if .Values.valkey.persistence.enabled }}
+          - --appendonly
+          - "yes"
+          {{- else }}
+          - --save
+          - ""
+          - --appendonly
+          - "no"
+          {{- end }}
+          {{- with .Values.valkey.extraArgs }}
+          {{- toYaml . | nindent 10 }}
+          {{- end }}
+        {{- with .Values.valkey.extraEnv }}
+        env:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+              - ALL
+        ports:
+          - name: valkey
+            containerPort: 6379
+        livenessProbe:
+          exec:
+            command: [valkey-cli, ping]
+        readinessProbe:
+          exec:
+            command: [valkey-cli, ping]
+        resources:
+          {{- toYaml .Values.valkey.resources | nindent 10 }}
+        volumeMounts:
+          - name: data
+            mountPath: /data
+    {{- if not .Values.valkey.persistence.enabled }}
+    volumes:
+      - name: data
+        emptyDir: {}
+    {{- end }}
+{{- if .Values.valkey.persistence.enabled }}
+volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: [ReadWriteOnce]
+      {{- with .Values.valkey.persistence.storageClass }}
+      storageClassName: {{ . | quote }}
+      {{- end }}
+      resources:
+        requests:
+          storage: {{ .Values.valkey.persistence.size }}
+{{- end }}
+{{- end }}
+{{- if .Values.valkey.enabled }}
+{{- $ctx := dict "root" . "component" "valkey" }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "frigate-notify.valkeyName" . }}
+  labels:
+    {{- include "frigate-notify.componentLabels" $ctx | nindent 4 }}
+spec:
+  ports:
+    - port: 6379
+      targetPort: valkey
+      name: valkey
+  selector:
+    {{- include "frigate-notify.componentSelector" $ctx | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "frigate-notify.valkeyName" . }}
+  labels:
+    {{- include "frigate-notify.componentLabels" $ctx | nindent 4 }}
+spec:
+  {{- include "frigate-notify.spec" (dict "base" (include "frigate-notify.valkeySpec" .) "extra" .Values.valkey.extraSpec) | nindent 2 }}
+{{- end }}

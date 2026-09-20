@@ -1,0 +1,76 @@
+name: Publish Helm Chart
+
+on:
+  pull_request:
+    paths: ['chart/**']
+  push:
+    branches: [main]
+    paths: ['chart/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: helm-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CHART_REGISTRY: oci://ghcr.io/connorsapps/charts
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v5
+
+      - name: Lint
+        run: helm lint chart/
+
+      - name: Render (telemetry on)
+        run: |
+          helm template frigate-notify chart/ \
+            --set otel.endpoint=http://collector.example.svc:4318 \
+            --set otel.traces.protocol=grpc \
+            --set-string otel.traces.samplerArg=0.1 \
+            --set 'otel.resourceAttributes.deployment\.environment=ci' \
+            | grep -q OTEL_EXPORTER_OTLP_ENDPOINT
+
+      - name: Set up helm-unittest
+        run: helm plugin install https://github.com/helm-unittest/helm-unittest --version v1.1.2 --verify=false
+
+      - name: Unit tests
+        run: helm unittest chart/
+
+  release:
+    name: Publish to GHCR
+    needs: lint
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v5
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Package and push chart (skipped if this version is already published)
+        run: |
+          version="$(sed -n 's/^version:[[:space:]]*//p' chart/Chart.yaml)"
+          if helm show chart "${CHART_REGISTRY}/frigate-notify" --version "$version" >/dev/null 2>&1; then
+            echo "chart $version already published"
+            exit 0
+          fi
+          helm package chart/
+          helm push "frigate-notify-${version}.tgz" "${CHART_REGISTRY}"

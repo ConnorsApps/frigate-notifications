@@ -1,0 +1,673 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "frigate-notify config",
+  "description": "Configuration file for frigate-notify",
+  "additionalProperties": false,
+  "properties": {
+    "cameras": {
+      "description": "Keyed by Frigate camera name",
+      "additionalProperties": {
+        "additionalProperties": false,
+        "properties": {
+          "friendlyName": {
+            "description": "Notification title for this camera (default: the camera key)",
+            "type": "string"
+          },
+          "liveViewEntity": {
+            "description": "camera.\u003cx\u003e entity ID, required by the liveview preset",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "dashboardPath": {
+      "description": "Home Assistant path a notification tap opens (hass targets)",
+      "type": "string"
+    },
+    "dashboardURL": {
+      "description": "Absolute http(s) URL of the same dashboard, for backends that can't resolve a relative path",
+      "pattern": "^(https?://.+)?$",
+      "type": "string"
+    },
+    "db": {
+      "additionalProperties": false,
+      "properties": {
+        "url": {
+          "description": "MongoDB or PostgreSQL URL (mongodb://, mongodb+srv://, postgres://, postgresql://) for audit persistence of events/notifications, and for cooldown/review state when redis.url is unset. Omit to skip persistence entirely.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "dryRun": {
+      "description": "Build and log notifications without sending them",
+      "type": "boolean"
+    },
+    "hass": {
+      "required": [
+        "url",
+        "token"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "token": {
+          "description": "Home Assistant long-lived access token",
+          "type": "string"
+        },
+        "url": {
+          "description": "Home Assistant base URL, e.g. https://homeassistant.example.com",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "logLevel": {
+      "description": "trace/debug/info/warn/error (default: info)",
+      "type": "string"
+    },
+    "media": {
+      "additionalProperties": false,
+      "properties": {
+        "frigateURL": {
+          "description": "In-cluster Frigate base URL (the unauthenticated listener, port 5000)",
+          "type": "string"
+        },
+        "linkTTL": {
+          "description": "How long a signed media link stays valid, e.g. 24h (default: 24h)",
+          "pattern": "^([-+]?(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+|[-+]?0)?$",
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "publicBaseURL": {
+          "description": "Public base URL of this service's media proxy, e.g. https://frigate-notifications.example.com",
+          "type": "string"
+        },
+        "signingKey": {
+          "description": "Hex-encoded HMAC key (at least 32 hex chars) for signed media links. Rotating it invalidates every outstanding link.",
+          "pattern": "^(\\s*([0-9a-fA-F]{2}){16,}\\s*)?$",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "mqtt": {
+      "required": [
+        "broker",
+        "username",
+        "password"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "broker": {
+          "description": "paho MQTT broker URI, e.g. tcp://mqtt.example.svc.cluster.local:1883",
+          "type": "string"
+        },
+        "clientId": {
+          "description": "MQTT client ID (default: frigate-notify)",
+          "type": "string"
+        },
+        "password": {
+          "description": "MQTT password",
+          "type": "string"
+        },
+        "topicPrefix": {
+          "description": "Frigate MQTT topic_prefix (default: frigate)",
+          "type": "string"
+        },
+        "username": {
+          "description": "MQTT username",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "ntfy": {
+      "description": "Needed by recipients with an ntfy target",
+      "required": [
+        "url"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "token": {
+          "description": "ntfy access token. Omit for open topics.",
+          "type": "string"
+        },
+        "url": {
+          "description": "ntfy server base URL. Updating a notification in place needs server \u003e= 2.16.",
+          "type": "string"
+        }
+      },
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "recipients": {
+      "description": "Keyed by recipient name, referenced by rules[].to. At least one is required.",
+      "minProperties": 1,
+      "additionalProperties": {
+        "required": [
+          "targets"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "activeHours": {
+            "description": "Non-critical notifications are sent only inside this window; outside it, only critical ones get through",
+            "required": [
+              "from",
+              "to"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "from": {
+                "description": "Start of the window: \"HH:MM\" (quote it), a 12-hour time like 9am or 11:30pm, noon, midnight, or a solar event — sunrise, sunset, dawn, dusk — with an optional offset, e.g. dusk+30m",
+                "type": "string"
+              },
+              "to": {
+                "description": "End of the window, same grammar as from. Earlier than from means the window wraps midnight.",
+                "type": "string"
+              }
+            },
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "allowCritical": {
+            "description": "Allow critical rules to bypass this recipient's silent/do-not-disturb mode. On backends with no such bypass, critical is styling only.",
+            "type": "boolean"
+          },
+          "maxPerHour": {
+            "description": "Beyond this many notifications per hour, collapse into a rolling digest (0 = no cap)",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "targets": {
+            "description": "Every place this recipient is notified. The policy below applies once per recipient, then every target gets the notification.",
+            "items": {
+              "required": [
+                "type"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "channel": {
+                  "description": "slack: a channel id (C...), or a user id (U...) to DM. Not a channel name. Required for slack.",
+                  "type": "string"
+                },
+                "service": {
+                  "description": "hass: bare suffix of notify.\u003cservice\u003e, e.g. mobile_app_alice_phone. Required for hass.",
+                  "type": "string"
+                },
+                "topic": {
+                  "description": "ntfy: topic to publish to. Required for ntfy.",
+                  "type": "string"
+                },
+                "type": {
+                  "description": "Which backend delivers to this target",
+                  "enum": [
+                    "hass",
+                    "slack",
+                    "ntfy",
+                    "discord"
+                  ],
+                  "type": "string"
+                },
+                "webhookURL": {
+                  "description": "discord: the channel's https webhook URL. It is the whole credential; treat it as a secret. Required for discord.",
+                  "type": "string"
+                }
+              },
+              "type": "object",
+              "allOf": [
+                {
+                  "if": {
+                    "required": [
+                      "type"
+                    ],
+                    "properties": {
+                      "type": {
+                        "const": "hass"
+                      }
+                    }
+                  },
+                  "then": {
+                    "required": [
+                      "service"
+                    ],
+                    "properties": {
+                      "service": {
+                        "minLength": 1
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "required": [
+                      "type"
+                    ],
+                    "properties": {
+                      "type": {
+                        "const": "slack"
+                      }
+                    }
+                  },
+                  "then": {
+                    "required": [
+                      "channel"
+                    ],
+                    "properties": {
+                      "channel": {
+                        "minLength": 1
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "required": [
+                      "type"
+                    ],
+                    "properties": {
+                      "type": {
+                        "const": "ntfy"
+                      }
+                    }
+                  },
+                  "then": {
+                    "required": [
+                      "topic"
+                    ],
+                    "properties": {
+                      "topic": {
+                        "minLength": 1
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "required": [
+                      "type"
+                    ],
+                    "properties": {
+                      "type": {
+                        "const": "discord"
+                      }
+                    }
+                  },
+                  "then": {
+                    "required": [
+                      "webhookURL"
+                    ],
+                    "properties": {
+                      "webhookURL": {
+                        "minLength": 1,
+                        "pattern": "^https://[^/]+"
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            "minItems": 1,
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "redis": {
+      "additionalProperties": false,
+      "properties": {
+        "url": {
+          "description": "Valkey/Redis URL for cooldowns and review state. Omit to keep state in the db (or in memory when there is none), which for memory does not survive a restart.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "rules": {
+      "description": "Ordered; the first matching rule wins, and position is priority. At least one is required.",
+      "items": {
+        "required": [
+          "name",
+          "when",
+          "to"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "cooldown": {
+            "description": "Minimum time between first sends, e.g. 30s",
+            "pattern": "^([-+]?(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+|[-+]?0)?$",
+            "type": [
+              "string",
+              "integer"
+            ]
+          },
+          "cooldownScope": {
+            "description": "What the cooldown is counted against (default: camera)",
+            "enum": [
+              "camera",
+              "rule",
+              "global"
+            ],
+            "type": "string"
+          },
+          "critical": {
+            "description": "Send as a critical push that breaks through silent mode",
+            "type": "boolean"
+          },
+          "holdoff": {
+            "description": "Delay the decision so late signals (face recognition) arrive first, e.g. 5s",
+            "pattern": "^([-+]?(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+|[-+]?0)?$",
+            "type": [
+              "string",
+              "integer"
+            ]
+          },
+          "name": {
+            "description": "Unique rule name; appears in metrics and the decision trace",
+            "minLength": 1,
+            "type": "string"
+          },
+          "preset": {
+            "description": "auto (default): best media that exists and fits, else text. text: no media. liveview: auto plus an iOS live camera stream",
+            "enum": [
+              "auto",
+              "text",
+              "liveview"
+            ],
+            "type": "string"
+          },
+          "timezone": {
+            "description": "IANA timezone override for this rule's hours window (default: the top-level timezone)",
+            "type": "string"
+          },
+          "to": {
+            "description": "Recipient names to notify",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "unless": {
+            "description": "Suppress the rule when ANY of these entries matches",
+            "items": {
+              "minProperties": 1,
+              "additionalProperties": false,
+              "properties": {
+                "cameras": {
+                  "description": "Frigate camera names",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": [
+                    "array",
+                    "null"
+                  ]
+                },
+                "entityState": {
+                  "description": "Home Assistant entity ID to required state",
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": [
+                    "object",
+                    "null"
+                  ]
+                },
+                "excludeSubLabels": {
+                  "description": "Recognized faces that suppress the rule, e.g. household members. Only suppresses when every detected person is recognized and excluded; an unrecognized or non-excluded person alongside them still matches",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": [
+                    "array",
+                    "null"
+                  ]
+                },
+                "hours": {
+                  "description": "Time-of-day window this rule applies in",
+                  "required": [
+                    "from",
+                    "to"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "from": {
+                      "description": "Start of the window: \"HH:MM\" (quote it), a 12-hour time like 9am or 11:30pm, noon, midnight, or a solar event — sunrise, sunset, dawn, dusk — with an optional offset, e.g. dusk+30m",
+                      "type": "string"
+                    },
+                    "to": {
+                      "description": "End of the window, same grammar as from. Earlier than from means the window wraps midnight.",
+                      "type": "string"
+                    }
+                  },
+                  "type": [
+                    "object",
+                    "null"
+                  ]
+                },
+                "labels": {
+                  "description": "Object labels, matched against the review's objects",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": [
+                    "array",
+                    "null"
+                  ]
+                },
+                "minDwell": {
+                  "description": "Object must persist at least this long, e.g. 15s",
+                  "pattern": "^([-+]?(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+|[-+]?0)?$",
+                  "type": [
+                    "string",
+                    "integer"
+                  ]
+                },
+                "severity": {
+                  "description": "Frigate review severity",
+                  "items": {
+                    "enum": [
+                      "alert",
+                      "detection"
+                    ],
+                    "type": "string"
+                  },
+                  "type": [
+                    "array",
+                    "null"
+                  ]
+                },
+                "subLabels": {
+                  "description": "Recognized faces that must be present",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": [
+                    "array",
+                    "null"
+                  ]
+                },
+                "zones": {
+                  "description": "Zones the review touched",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": [
+                    "array",
+                    "null"
+                  ]
+                }
+              },
+              "type": "object"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "when": {
+            "description": "Conditions, all of which must hold",
+            "additionalProperties": false,
+            "properties": {
+              "cameras": {
+                "description": "Frigate camera names",
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "entityState": {
+                "description": "Home Assistant entity ID to required state",
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": [
+                  "object",
+                  "null"
+                ]
+              },
+              "excludeSubLabels": {
+                "description": "Recognized faces that suppress the rule, e.g. household members. Only suppresses when every detected person is recognized and excluded; an unrecognized or non-excluded person alongside them still matches",
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "hours": {
+                "description": "Time-of-day window this rule applies in",
+                "required": [
+                  "from",
+                  "to"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "from": {
+                    "description": "Start of the window: \"HH:MM\" (quote it), a 12-hour time like 9am or 11:30pm, noon, midnight, or a solar event — sunrise, sunset, dawn, dusk — with an optional offset, e.g. dusk+30m",
+                    "type": "string"
+                  },
+                  "to": {
+                    "description": "End of the window, same grammar as from. Earlier than from means the window wraps midnight.",
+                    "type": "string"
+                  }
+                },
+                "type": [
+                  "object",
+                  "null"
+                ]
+              },
+              "labels": {
+                "description": "Object labels, matched against the review's objects",
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "minDwell": {
+                "description": "Object must persist at least this long, e.g. 15s",
+                "pattern": "^([-+]?(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+|[-+]?0)?$",
+                "type": [
+                  "string",
+                  "integer"
+                ]
+              },
+              "severity": {
+                "description": "Frigate review severity",
+                "items": {
+                  "enum": [
+                    "alert",
+                    "detection"
+                  ],
+                  "type": "string"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "subLabels": {
+                "description": "Recognized faces that must be present",
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "zones": {
+                "description": "Zones the review touched",
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
+      "minItems": 1,
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "slack": {
+      "description": "Needed by recipients with a slack target",
+      "required": [
+        "botToken"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "botToken": {
+          "description": "Slack bot token (xoxb-...) with chat:write. A bot rather than an incoming webhook, because only the bot that posted a message can edit it in place. Invite the bot to each channel, or grant chat:write.public.",
+          "type": "string"
+        }
+      },
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "timezone": {
+      "description": "IANA timezone for all wall-clock comparisons (default: Local)",
+      "type": "string"
+    }
+  },
+  "type": "object"
+}

@@ -1,0 +1,89 @@
+suite: valkey
+templates:
+  - valkey.yaml
+set:
+  fullnameOverride: fn
+tests:
+  - it: renders nothing by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders an ephemeral service and statefulset
+    set:
+      valkey.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 2
+      - documentSelector: {path: kind, value: Service}
+        equal:
+          path: spec.ports[0].port
+          value: 6379
+      - documentSelector: {path: kind, value: StatefulSet}
+        equal:
+          path: spec.template.spec.securityContext.runAsUser
+          value: 999
+      - documentSelector: {path: kind, value: StatefulSet}
+        equal:
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: true
+      - documentSelector: {path: kind, value: StatefulSet}
+        equal:
+          path: spec.template.spec.volumes[0].emptyDir
+          value: {}
+      - documentSelector: {path: kind, value: StatefulSet}
+        contains:
+          path: spec.template.spec.containers[0].args
+          content: --save
+      - documentSelector: {path: kind, value: StatefulSet}
+        notExists:
+          path: spec.volumeClaimTemplates
+
+  - it: uses a claim and AOF when persistence is enabled
+    set:
+      valkey.enabled: true
+      valkey.persistence.enabled: true
+      valkey.persistence.size: 2Gi
+      valkey.persistence.storageClass: fast
+    asserts:
+      - documentSelector: {path: kind, value: StatefulSet}
+        equal:
+          path: spec.volumeClaimTemplates[0].spec.resources.requests.storage
+          value: 2Gi
+      - documentSelector: {path: kind, value: StatefulSet}
+        equal:
+          path: spec.volumeClaimTemplates[0].spec.storageClassName
+          value: fast
+      - documentSelector: {path: kind, value: StatefulSet}
+        contains:
+          path: spec.template.spec.containers[0].args
+          content: "yes"
+      - documentSelector: {path: kind, value: StatefulSet}
+        notExists:
+          path: spec.template.spec.volumes
+
+  - it: passes extraArgs, extraEnv and extraSpec through
+    set:
+      valkey.enabled: true
+      valkey.extraArgs: [--maxmemory, 64mb]
+      valkey.extraEnv:
+        - name: FOO
+          value: bar
+      valkey.extraSpec:
+        template:
+          spec:
+            nodeSelector:
+              disk: ssd
+    asserts:
+      - documentSelector: {path: kind, value: StatefulSet}
+        contains:
+          path: spec.template.spec.containers[0].args
+          content: 64mb
+      - documentSelector: {path: kind, value: StatefulSet}
+        equal:
+          path: spec.template.spec.containers[0].env[0].name
+          value: FOO
+      - documentSelector: {path: kind, value: StatefulSet}
+        equal:
+          path: spec.template.spec.nodeSelector.disk
+          value: ssd

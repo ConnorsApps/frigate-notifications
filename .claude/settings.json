@@ -1,0 +1,5 @@
+{
+  "permissions": {
+    "deny": ["Read(./config.yaml)", "Grep(./config.yaml)", "Edit(./config.yaml)"]
+  }
+}

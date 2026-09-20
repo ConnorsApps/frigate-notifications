@@ -1,0 +1,56 @@
+{
+  "_comment": "SYNTHETIC: modelled on Frigate 0.17+ source (frigate/data_processing/post/review_descriptions.py), not captured from a live instance. Same review as review-end.json; only data.metadata is filled in.",
+  "type": "genai",
+  "before": {
+    "id": "1787614651.122803-w0zlfu",
+    "camera": "garage",
+    "start_time": 1787614651.122803,
+    "end_time": 1787614663.492784,
+    "severity": "alert",
+    "thumb_path": "/media/frigate/clips/review/thumb-garage-1787614651.122803-w0zlfu.webp",
+    "data": {
+      "detections": [
+        "1787614649.646371-ums8dg"
+      ],
+      "objects": [
+        "person"
+      ],
+      "verified_objects": [],
+      "sub_labels": [],
+      "zones": [],
+      "audio": [],
+      "thumb_time": 1787614651.223708,
+      "metadata": null
+    }
+  },
+  "after": {
+    "id": "1787614651.122803-w0zlfu",
+    "camera": "garage",
+    "start_time": 1787614651.122803,
+    "end_time": 1787614663.492784,
+    "severity": "alert",
+    "thumb_path": "/media/frigate/clips/review/thumb-garage-1787614651.122803-w0zlfu.webp",
+    "data": {
+      "detections": [
+        "1787614649.646371-ums8dg"
+      ],
+      "objects": [
+        "person"
+      ],
+      "verified_objects": [],
+      "sub_labels": [],
+      "zones": [],
+      "audio": [],
+      "thumb_time": 1787614651.223708,
+      "metadata": {
+        "title": "Person approaches the garage door",
+        "shortSummary": "A person walks up to the garage door and looks toward the driveway.",
+        "scene": "At dusk a person in dark clothing walks from the driveway to the garage door, pauses, then leaves.",
+        "confidence": 0.9,
+        "potential_threat_level": 1,
+        "other_concerns": [],
+        "time": "9:37 PM"
+      }
+    }
+  }
+}

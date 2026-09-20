@@ -1,0 +1,101 @@
+suite: deployment
+templates:
+  - deployment.yaml
+set:
+  fullnameOverride: fn
+tests:
+  - it: has no store env by default
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env
+          value:
+            - name: CONFIG_PATH
+              value: /etc/frigate-notify/config.yaml
+      - equal:
+          path: spec.selector.matchLabels["app.kubernetes.io/component"]
+          value: app
+
+  - it: adds OTEL env when an endpoint is set
+    set:
+      otel.endpoint: http://collector:4318
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OTEL_EXPORTER_OTLP_ENDPOINT
+            value: http://collector:4318
+
+  - it: points REDIS_URL at bundled valkey
+    set:
+      valkey.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: REDIS_URL
+            value: redis://fn-valkey:6379
+
+  - it: reads DB_URL from the CNPG app secret
+    set:
+      postgres.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DB_URL
+            valueFrom:
+              secretKeyRef:
+                name: fn-postgres-app
+                key: uri
+
+  - it: reads DB_URL from the chart secret for statefulset mongo
+    set:
+      mongo.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DB_URL
+            valueFrom:
+              secretKeyRef:
+                name: fn-mongo-auth
+                key: url
+
+  - it: reads DB_URL from the operator secret for operator mongo
+    set:
+      mongo.enabled: true
+      mongo.mode: operator
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DB_URL
+            valueFrom:
+              secretKeyRef:
+                name: fn-mongo-admin-frigate-notify
+                key: connectionString.standard
+
+  - it: sets both URLs when valkey and postgres are enabled
+    set:
+      valkey.enabled: true
+      postgres.enabled: true
+    asserts:
+      - lengthEqual:
+          path: spec.template.spec.containers[0].env
+          count: 3
+
+  - it: lets extraEnv replace the injected DB_URL
+    set:
+      postgres.enabled: true
+      extraEnv:
+        - name: DB_URL
+          value: postgres://mine
+    asserts:
+      - lengthEqual:
+          path: spec.template.spec.containers[0].env
+          count: 2
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DB_URL
+            value: postgres://mine

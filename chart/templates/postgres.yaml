@@ -1,0 +1,30 @@
+{{- define "frigate-notify.postgresSpec" -}}
+instances: {{ .Values.postgres.instances }}
+{{- with .Values.postgres.imageName }}
+imageName: {{ . | quote }}
+{{- end }}
+bootstrap:
+  initdb:
+    database: {{ .Values.postgres.database | quote }}
+    owner: {{ .Values.postgres.owner | quote }}
+storage:
+  size: {{ .Values.postgres.storage.size }}
+  {{- with .Values.postgres.storage.storageClass }}
+  storageClass: {{ . | quote }}
+  {{- end }}
+{{- with .Values.postgres.resources }}
+resources:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- end }}
+{{- if .Values.postgres.enabled }}
+# CNPG creates <name>-app; its `uri` is DB_URL.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ include "frigate-notify.postgresName" . }}
+  labels:
+    {{- include "frigate-notify.componentLabels" (dict "root" . "component" "postgres") | nindent 4 }}
+spec:
+  {{- include "frigate-notify.spec" (dict "base" (include "frigate-notify.postgresSpec" .) "extra" .Values.postgres.extraSpec) | nindent 2 }}
+{{- end }}

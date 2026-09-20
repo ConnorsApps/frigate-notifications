@@ -1,0 +1,122 @@
+# yaml-language-server: $schema=./config.schema.json
+
+hass:
+  url: https://homeassistant.example.com
+  token: ''
+
+# slack / ntfy are only needed by recipients with such a target. hass is always
+# required: rule conditions (entityState, solar hours) read its state.
+slack:
+  # Bot token (xoxb-...) with chat:write; invite the bot to each channel, or
+  # grant chat:write.public. A bot, not a webhook, so messages can be edited.
+  botToken: ''
+ntfy:
+  url: https://ntfy.example.com # ntfy server >= 2.16 to update notifications in place
+  token: '' # optional access token; omit for open topics
+
+mqtt:
+  broker: tcp://mqtt.example.svc.cluster.local:1883
+  username: frigate-notify
+  password: ''
+
+# The chart sets redis.url / db.url itself when valkey / postgres / mongo are
+# enabled in its values; leave them out of the config in that case.
+redis:
+  # Cooldowns, per-review state, and rate caps. Omit to use db below (else
+  # memory, which forgets every live cooldown on restart — and CI restarts
+  # this deployment on every image push).
+  url: redis://default:@valkey.frigate.svc.cluster.local:6379
+
+db:
+  # MongoDB or PostgreSQL, by URL scheme. Audit log of events and every
+  # notification attempt (1-year retention), plus the state above when
+  # redis.url is unset. Omit to skip persistence; never required for startup.
+  url: postgres://frigate-notify:@postgres.frigate.svc.cluster.local:5432/frigate-notify
+  # url: mongodb://frigate-notify:@shared-mongo-0.shared-mongo-svc.shared-mongo.svc.cluster.local,shared-mongo-1.shared-mongo-svc.shared-mongo.svc.cluster.local,shared-mongo-2.shared-mongo-svc.shared-mongo.svc.cluster.local/frigate-notify?replicaSet=shared-mongo
+
+media:
+  # Notifications link to this service's signed proxy, which fetches from Frigate
+  # in-cluster, because phones off the LAN can't reach Frigate directly.
+  frigateURL: http://frigate.frigate.svc.cluster.local:5000
+  publicBaseURL: https://frigate-notifications.example.com
+  signingKey: '' # hex; rotating it invalidates every outstanding link
+
+timezone: America/New_York
+dashboardPath: /lovelace/frigate # Home Assistant app: a relative path
+# Everything else can't resolve a relative path, so it gets an absolute link.
+dashboardURL: https://homeassistant.example.com/lovelace/frigate
+
+# A recipient is a person, reached on one or more targets. Policy (allowCritical,
+# activeHours, maxPerHour) applies once per recipient, then every target gets it.
+recipients:
+  alice:
+    targets:
+      - { type: hass, service: mobile_app_alice_phone } # bare suffix of notify.<service>
+      - { type: slack, channel: U0123ABCD } # a channel id, or a user id to DM
+      - { type: ntfy, topic: alice-frigate }
+    allowCritical: true
+    maxPerHour: 8
+  bob:
+    targets:
+      - { type: hass, service: mobile_app_bob_phone }
+      # The webhook URL is the whole credential; treat it as a secret.
+      - { type: discord, webhookURL: 'https://discord.com/api/webhooks/000000/example' }
+    allowCritical: true
+    # Awake window: outside it, only critical notifications get through.
+    # Wall-clock ("09:00"), 12-hour (9am), and named (noon/midnight) forms
+    # are all accepted — this is the same window as { from: "09:00", to: "21:00" }.
+    activeHours: { from: 9am, to: 9pm }
+
+cameras:
+  front_porch:
+    friendlyName: Front Porch
+    liveViewEntity: camera.front_porch
+  garage:
+    friendlyName: Garage
+    liveViewEntity: camera.garage
+
+# Ordered: the first matching rule wins, and position is priority. An
+# end-of-review re-match may only escalate to a lower index, so a late match
+# can never quietly demote a critical alert.
+rules:
+  - name: night-person
+    when:
+      # Solar, not wall-clock: a fixed 23:00-06:00 window leaves six hours of
+      # December darkness uncovered.
+      hours: { from: dusk+30m, to: dawn-30m }
+      labels: [person]
+      severity: [alert]
+      # Face recognition lands a moment after the review opens, which is what
+      # the holdoff below waits for.
+      excludeSubLabels: [alice, bob]
+    unless:
+      # Any entry suppresses; conditions within an entry are ANDed.
+      - entityState:
+          alarm_control_panel.home: disarmed
+      - entityState:
+          input_boolean.guest_mode: 'on'
+    holdoff: 5s
+    cooldown: 5m
+    cooldownScope: rule
+    to: [alice, bob]
+    # Media is picked automatically (best that exists and fits, else text).
+    # "liveview" adds an iOS live camera stream; "text" turns media off.
+    preset: liveview
+    critical: true
+
+  - name: garage-loiter
+    when:
+      cameras: [garage]
+      zones: [back_porch]
+      labels: [person]
+    cooldown: 1m
+    to: [alice, bob]
+
+  - name: day
+    when:
+      hours: { from: dawn-30m, to: dusk+30m }
+      labels: [person, dog, package]
+      severity: [alert]
+    cooldown: 30s
+    cooldownScope: rule
+    to: [alice, bob]

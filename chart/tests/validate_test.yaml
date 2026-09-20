@@ -1,0 +1,123 @@
+suite: validation
+templates:
+  - secret-config.yaml
+tests:
+  - it: renders with defaults
+    asserts:
+      - isKind:
+          of: Secret
+
+  - it: allows a single database
+    set:
+      postgres.enabled: true
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: rejects postgres with mongo
+    set:
+      postgres.enabled: true
+      mongo.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: mutually exclusive
+
+  - it: rejects an unknown mongo mode
+    set:
+      mongo.mode: nope
+    asserts:
+      - failedTemplate:
+          errorPattern: value must be one of 'statefulset', 'operator'
+
+  - it: rejects config.redis.url with bundled valkey
+    set:
+      valkey.enabled: true
+      config.redis.url: redis://x
+    asserts:
+      - failedTemplate:
+          errorPattern: remove config.redis.url
+
+  - it: rejects config.db.url with bundled postgres
+    set:
+      postgres.enabled: true
+      config.db.url: postgres://x
+    asserts:
+      - failedTemplate:
+          errorPattern: remove config.db.url
+
+  - it: rejects config.db.url with bundled mongo
+    set:
+      mongo.enabled: true
+      config.db.url: mongodb://x
+    asserts:
+      - failedTemplate:
+          errorPattern: remove config.db.url
+
+  # values.schema.json runs before any template renders.
+  - it: rejects an unknown top-level value
+    set:
+      nope: 1
+    asserts:
+      - failedTemplate:
+          errorPattern: additional properties 'nope' not allowed
+
+  - it: rejects an unknown nested value
+    set:
+      otel.nope: 1
+    asserts:
+      - failedTemplate:
+          errorPattern: additional properties 'nope' not allowed
+
+  - it: rejects an out-of-range port
+    set:
+      service.port: 0
+    asserts:
+      - failedTemplate:
+          errorPattern: /service/port
+
+  - it: rejects a malformed storage size
+    set:
+      mongo.storage.size: big
+    asserts:
+      - failedTemplate:
+          errorPattern: /mongo/storage/size
+
+  - it: rejects a wrongly typed Kubernetes field
+    set:
+      securityContext.runAsUser: nobody
+    asserts:
+      - failedTemplate:
+          errorPattern: /securityContext/runAsUser
+
+  - it: rejects a config typo
+    set:
+      config.rules:
+        - name: r
+          to: [alice]
+          when:
+            sevrity: [alert]
+    asserts:
+      - failedTemplate:
+          errorPattern: additional properties 'sevrity' not allowed
+
+  - it: rejects a target missing the field its backend needs
+    set:
+      config.recipients.alice.targets:
+        - type: slack
+    asserts:
+      - failedTemplate:
+          errorPattern: missing property 'channel'
+
+  - it: accepts the example config shape
+    set:
+      config.hass.url: https://homeassistant.example.com
+      config.hass.token: x
+      config.mqtt: { broker: "tcp://mqtt:1883", username: u, password: p }
+      config.recipients.alice.targets:
+        - { type: hass, service: mobile_app_alice_phone }
+      config.rules:
+        - name: person
+          to: [alice]
+          cooldown: 30s
+          when: { labels: [person], severity: [alert] }
+    asserts:
+      - notFailedTemplate: {}

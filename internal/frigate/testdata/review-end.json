@@ -1,0 +1,47 @@
+{
+  "type": "end",
+  "before": {
+    "id": "1787614651.122803-w0zlfu",
+    "camera": "garage",
+    "start_time": 1787614651.122803,
+    "end_time": null,
+    "severity": "alert",
+    "thumb_path": "/media/frigate/clips/review/thumb-garage-1787614651.122803-w0zlfu.webp",
+    "data": {
+      "detections": [
+        "1787614649.646371-ums8dg"
+      ],
+      "objects": [
+        "person"
+      ],
+      "verified_objects": [],
+      "sub_labels": [],
+      "zones": [],
+      "audio": [],
+      "thumb_time": 1787614651.223708,
+      "metadata": null
+    }
+  },
+  "after": {
+    "id": "1787614651.122803-w0zlfu",
+    "camera": "garage",
+    "start_time": 1787614651.122803,
+    "end_time": 1787614663.492784,
+    "severity": "alert",
+    "thumb_path": "/media/frigate/clips/review/thumb-garage-1787614651.122803-w0zlfu.webp",
+    "data": {
+      "detections": [
+        "1787614649.646371-ums8dg"
+      ],
+      "objects": [
+        "person"
+      ],
+      "verified_objects": [],
+      "sub_labels": [],
+      "zones": [],
+      "audio": [],
+      "thumb_time": 1787614651.223708,
+      "metadata": null
+    }
+  }
+}

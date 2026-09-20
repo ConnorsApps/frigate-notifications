@@ -1,0 +1,152 @@
+# yaml-language-server: $schema=./values.schema.json
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/connorsapps/frigate-notifications
+  pullPolicy: IfNotPresent
+  # Defaults to the chart's appVersion.
+  tag: ""
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+podAnnotations: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+service:
+  type: ClusterIP
+  # port serves /healthz, /readyz and metrics — cluster-internal only.
+  port: 8080
+  # mediaPort serves signed media links and is the only port routed publicly.
+  mediaPort: 8081
+
+resources:
+  limits:
+    cpu: 200m
+    memory: 64Mi
+  requests:
+    cpu: 10m
+    memory: 32Mi
+
+# OpenTelemetry export, rendered as OTEL_* environment variables. Off until an
+# endpoint is set. Metrics are OTLP/HTTP only; traces can use HTTP or gRPC.
+otel:
+  # Base URL for both signals; over HTTP the SDK appends /v1/traces and
+  # /v1/metrics. Use the per-signal endpoints for other paths.
+  endpoint: ""
+  # Not for secrets: put those in extraEnv with valueFrom.
+  headers: {}
+  # k8s.namespace.name, k8s.pod.name, k8s.node.name from the downward API.
+  kubernetesAttributes: true
+  # Extra resource attributes; values must not contain "," or "=".
+  resourceAttributes: {}
+  traces:
+    # Used as-is: over HTTP include the full path (.../v1/traces); for gRPC give
+    # host:port or a URL.
+    endpoint: ""
+    # http/protobuf or grpc.
+    protocol: http/protobuf
+    # parentbased_traceidratio with samplerArg "0.1" samples 10%.
+    sampler: parentbased_always_on
+    samplerArg: ""
+  metrics:
+    # Used as-is (include the full path).
+    endpoint: ""
+    # Milliseconds.
+    exportInterval: 60000
+
+# Extra container env vars, appended last so they override anything above.
+extraEnv: []
+
+# Optional bundled services, off by default. When enabled the chart sets
+# REDIS_URL / DB_URL, which override (and conflict with) config.redis.url /
+# config.db.url. Only one of postgres / mongo. Operators are not installed.
+#
+# Each block takes extraSpec, deep-merged over the resource's spec (maps merge,
+# lists replace), so any field can be set without forking. Examples:
+# postgres.extraSpec.postgresql.parameters, valkey.extraSpec.template.spec.nodeSelector,
+# mongo.extraSpec.additionalMongodConfig (operator mode; statefulset mode
+# targets the StatefulSet spec). extraEnv / valkey.extraArgs append to the container
+# (mongo extraEnv: statefulset mode only).
+
+# State store (cooldowns, review state, rate caps). No auth: keep cluster-internal.
+valkey:
+  enabled: false
+  image: valkey/valkey:9.1.2-alpine
+  # Off: emptyDir, lost on reschedule (the app fails open).
+  persistence:
+    enabled: false
+    size: 1Gi
+    storageClass: ""
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 128Mi
+  extraArgs: []
+  extraEnv: []
+  extraSpec: {}
+
+# Needs the CloudNativePG operator installed (https://cloudnative-pg.io).
+postgres:
+  enabled: false
+  # Empty: the operator's default image.
+  imageName: ""
+  instances: 1
+  database: frigate-notify
+  owner: frigate-notify
+  storage:
+    size: 5Gi
+    storageClass: ""
+  resources: {}
+  extraSpec: {}
+
+# statefulset: standalone official mongo image, no operator. operator: a
+# MongoDBCommunity resource; needs the MongoDB operator installed
+# (helm repo add mongodb https://mongodb.github.io/helm-charts;
+#  helm install mongodb-kubernetes mongodb/mongodb-kubernetes).
+mongo:
+  enabled: false
+  mode: statefulset
+  # 8.0 is the newest major (5-year support). 8.3 is a minor: production-ready,
+  # but unpatched once 8.4 ships, and aimed at Search/Vector Search on-prem.
+  # Must be >= 8.0.30 (or 8.3.9): earlier builds don't start on Linux >= 6.19
+  # (SERVER-121912).
+  image: mongo:8.0.32
+  # Password is generated into <release>-mongo-auth.
+  user: frigate-notify
+  # Operator mode only.
+  members: 1
+  storage:
+    size: 5Gi
+    storageClass: ""
+  resources: {}
+  extraEnv: []
+  extraSpec: {}
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+# Full config.yaml content (see ../config-example.yaml for the shape),
+# rendered into a Secret and mounted at /etc/frigate-notify/config.yaml.
+config: {}

@@ -1,0 +1,56 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      mongo:
+        image: mongo:8.0.32
+        ports: ["27017:27017"]
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ping:1})'"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_POSTGRES_URL: postgres://postgres:postgres@localhost:5432/postgres
+      TEST_MONGO_URL: mongodb://localhost:27017/?directConnection=true
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Vet
+        run: go vet ./...
+
+      # cmd/schema-gen is its own module, so the root vet and test skip it.
+      - name: Schemas are up to date
+        working-directory: cmd/schema-gen
+        run: |
+          go vet ./...
+          go test ./...
+          go run .
+          git diff --exit-code -- ../../config.schema.json ../../chart/values.schema.json
+
+      - name: Test
+        run: go test ./...
