@@ -34,7 +34,7 @@ jobs:
 
       - name: Render (telemetry on)
         run: |
-          helm template frigate-notify chart/ \
+          helm template frigate-notifications chart/ \
             --set otel.endpoint=http://collector.example.svc:4318 \
             --set otel.traces.protocol=grpc \
             --set-string otel.traces.samplerArg=0.1 \
@@ -68,9 +68,9 @@ jobs:
       - name: Package and push chart (skipped if this version is already published)
         run: |
           version="$(sed -n 's/^version:[[:space:]]*//p' chart/Chart.yaml)"
-          if helm show chart "${CHART_REGISTRY}/frigate-notify" --version "$version" >/dev/null 2>&1; then
+          if helm show chart "${CHART_REGISTRY}/frigate-notifications" --version "$version" >/dev/null 2>&1; then
             echo "chart $version already published"
             exit 0
           fi
           helm package chart/
-          helm push "frigate-notify-${version}.tgz" "${CHART_REGISTRY}"
+          helm push "frigate-notifications-${version}.tgz" "${CHART_REGISTRY}"

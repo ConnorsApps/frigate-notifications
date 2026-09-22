@@ -338,10 +338,10 @@ CI publishes both artifacts to GHCR on every push to `main`:
 | Artifact | Reference |
 |----------|-----------|
 | Image | `ghcr.io/connorsapps/frigate-notifications` (`latest`, `<version>` from `v*` tags, `sha-<short>`) |
-| Helm chart | `oci://ghcr.io/connorsapps/charts/frigate-notify` |
+| Helm chart | `oci://ghcr.io/connorsapps/charts/frigate-notifications` |
 
 ```sh
-helm upgrade --install frigate-notify oci://ghcr.io/connorsapps/charts/frigate-notify \
+helm upgrade --install frigate-notifications oci://ghcr.io/connorsapps/charts/frigate-notifications \
   --version <chart version> --set image.tag=<version> \
   --values values.yaml   # config: <the full config.yaml under the `config` key>
 ```
