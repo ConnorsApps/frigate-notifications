@@ -52,6 +52,31 @@ tests:
       - failedTemplate:
           errorPattern: remove config.db.url
 
+  - it: rejects httpRoute without hostnames
+    set:
+      httpRoute.enabled: true
+      httpRoute.parentRefs: [{name: gw}]
+    asserts:
+      - failedTemplate:
+          errorPattern: requires httpRoute.hostnames
+
+  - it: rejects httpRoute without parentRefs
+    set:
+      httpRoute.enabled: true
+      httpRoute.hostnames: [notify.example.com]
+    asserts:
+      - failedTemplate:
+          errorPattern: requires httpRoute.parentRefs
+
+  - it: rejects a parentRef without a name
+    set:
+      httpRoute.enabled: true
+      httpRoute.hostnames: [notify.example.com]
+      httpRoute.parentRefs: [{sectionName: https}]
+    asserts:
+      - failedTemplate:
+          errorPattern: missing property 'name'
+
   # values.schema.json runs before any template renders.
   - it: rejects an unknown top-level value
     set:

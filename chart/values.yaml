@@ -36,6 +36,23 @@ service:
   # mediaPort serves signed media links and is the only port routed publicly.
   mediaPort: 8081
 
+# Gateway API HTTPRoute for the media port only (service.mediaPort); the
+# health/metrics port is never routed. Needs the Gateway API CRDs and an
+# existing Gateway.
+httpRoute:
+  enabled: false
+  annotations: {}
+  # The host in config.media.publicBaseURL. Required when enabled.
+  hostnames: []
+  # Gateways to attach to. Required when enabled, e.g.
+  #   - name: public
+  #     namespace: gateways
+  #     sectionName: https
+  parentRefs: []
+  # Signed media links all live under /m/; use / to route everything on the
+  # media port.
+  pathPrefix: /m/
+
 resources:
   limits:
     cpu: 200m

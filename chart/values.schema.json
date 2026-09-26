@@ -1566,6 +1566,84 @@
       "pattern": "^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$",
       "type": "string"
     },
+    "httpRoute": {
+      "description": "Optional Gateway API HTTPRoute exposing the media port",
+      "additionalProperties": false,
+      "properties": {
+        "annotations": {
+          "description": "HTTPRoute annotations",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "enabled": {
+          "description": "Render a Gateway API HTTPRoute for the media port (service.mediaPort). It never routes the health/metrics port.",
+          "type": "boolean"
+        },
+        "hostnames": {
+          "description": "Hostnames the route answers for; the host in config.media.publicBaseURL. Required when enabled.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "parentRefs": {
+          "description": "Gateways (and listeners) the route attaches to. Required when enabled.",
+          "items": {
+            "required": [
+              "name"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "group": {
+                "description": "Defaults to gateway.networking.k8s.io",
+                "type": "string"
+              },
+              "kind": {
+                "description": "Defaults to Gateway",
+                "type": "string"
+              },
+              "name": {
+                "description": "Gateway name",
+                "type": "string"
+              },
+              "namespace": {
+                "description": "Gateway namespace. Empty: the route's namespace.",
+                "type": "string"
+              },
+              "port": {
+                "description": "Listener port. Rarely needed: prefer sectionName.",
+                "maximum": 65535,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "sectionName": {
+                "description": "Listener name on the Gateway. Empty: every listener the route is allowed to attach to.",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "pathPrefix": {
+          "description": "Only paths under this prefix are routed. Signed media links all live under /m/; use / to route everything on the media port.",
+          "pattern": "^/",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
     "image": {
       "additionalProperties": false,
       "properties": {

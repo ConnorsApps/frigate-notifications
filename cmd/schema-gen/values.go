@@ -53,6 +53,23 @@ type serviceValues struct {
 	MediaPort int         `json:"mediaPort" minimum:"1" maximum:"65535" description:"Serves signed media links and is the only port routed publicly"`
 }
 
+type parentRef struct {
+	Name        string `json:"name" required:"true" description:"Gateway name"`
+	Namespace   string `json:"namespace" description:"Gateway namespace. Empty: the route's namespace."`
+	SectionName string `json:"sectionName" description:"Listener name on the Gateway. Empty: every listener the route is allowed to attach to."`
+	Kind        string `json:"kind" description:"Defaults to Gateway"`
+	Group       string `json:"group" description:"Defaults to gateway.networking.k8s.io"`
+	Port        int    `json:"port" minimum:"1" maximum:"65535" description:"Listener port. Rarely needed: prefer sectionName."`
+}
+
+type httpRouteValues struct {
+	Enabled     bool              `json:"enabled" description:"Render a Gateway API HTTPRoute for the media port (service.mediaPort). It never routes the health/metrics port."`
+	Annotations map[string]string `json:"annotations" description:"HTTPRoute annotations"`
+	Hostnames   []string          `json:"hostnames" description:"Hostnames the route answers for; the host in config.media.publicBaseURL. Required when enabled."`
+	ParentRefs  []parentRef       `json:"parentRefs" description:"Gateways (and listeners) the route attaches to. Required when enabled."`
+	PathPrefix  string            `json:"pathPrefix" pattern:"^/" description:"Only paths under this prefix are routed. Signed media links all live under /m/; use / to route everything on the media port."`
+}
+
 type otelTraces struct {
 	Endpoint   string        `json:"endpoint" description:"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT. Used as-is, so over HTTP include the full path (e.g. .../v1/traces); for gRPC give host:port or a URL."`
 	Protocol   traceProtocol `json:"protocol" description:"OTEL_EXPORTER_OTLP_TRACES_PROTOCOL: http/protobuf or grpc"`
@@ -128,6 +145,7 @@ type values struct {
 	PodSecurityContext corev1.PodSecurityContext     `json:"podSecurityContext" description:"Pod-level security context"`
 	SecurityContext    corev1.SecurityContext        `json:"securityContext" description:"App container security context"`
 	Service            serviceValues                 `json:"service"`
+	HTTPRoute          httpRouteValues               `json:"httpRoute" description:"Optional Gateway API HTTPRoute exposing the media port"`
 	Resources          corev1.ResourceRequirements   `json:"resources" description:"App container resources"`
 	Otel               otelValues                    `json:"otel" description:"OpenTelemetry export, rendered as the standard OTEL_* environment variables. Off until an endpoint is set. Metrics are OTLP/HTTP only; traces can use HTTP or gRPC."`
 	ExtraEnv           []corev1.EnvVar               `json:"extraEnv" description:"Extra container env vars, appended last so they override anything the chart sets"`

@@ -121,6 +121,14 @@ Rejects conflicting values.
 {{- if and (or .Values.postgres.enabled .Values.mongo.enabled) (($cfg.db | default dict).url) }}
 {{- fail "postgres.enabled/mongo.enabled set db.url; remove config.db.url" }}
 {{- end }}
+{{- if .Values.httpRoute.enabled }}
+{{- if not .Values.httpRoute.hostnames }}
+{{- fail "httpRoute.enabled requires httpRoute.hostnames" }}
+{{- end }}
+{{- if not .Values.httpRoute.parentRefs }}
+{{- fail "httpRoute.enabled requires httpRoute.parentRefs" }}
+{{- end }}
+{{- end }}
 {{- end }}
 
 {{/*

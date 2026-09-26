@@ -1,0 +1,69 @@
+suite: httproute
+templates:
+  - httproute.yaml
+set:
+  fullnameOverride: fn
+tests:
+  - it: renders nothing by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: routes the media port under /m/
+    set:
+      httpRoute:
+        enabled: true
+        hostnames: [notify.example.com]
+        parentRefs:
+          - {name: public, namespace: gateways, sectionName: https}
+    asserts:
+      - isKind:
+          of: HTTPRoute
+      - equal:
+          path: metadata.name
+          value: fn
+      - equal:
+          path: spec.hostnames
+          value: [notify.example.com]
+      - equal:
+          path: spec.parentRefs
+          value:
+            - {name: public, namespace: gateways, sectionName: https}
+      - equal:
+          path: spec.rules[0].matches[0].path
+          value: {type: PathPrefix, value: /m/}
+      - equal:
+          path: spec.rules[0].backendRefs
+          value:
+            - {name: fn, port: 8081}
+
+  - it: follows service.mediaPort and never service.port
+    set:
+      service.mediaPort: 9000
+      httpRoute:
+        enabled: true
+        hostnames: [notify.example.com]
+        parentRefs: [{name: public}]
+    asserts:
+      - equal:
+          path: spec.rules[0].backendRefs[0].port
+          value: 9000
+
+  - it: attaches to several gateways and honours pathPrefix and annotations
+    set:
+      httpRoute:
+        enabled: true
+        pathPrefix: /
+        annotations: {a: b}
+        hostnames: [notify.example.com]
+        parentRefs: [{name: private}, {name: public}]
+    asserts:
+      - lengthEqual:
+          path: spec.parentRefs
+          count: 2
+      - equal:
+          path: spec.rules[0].matches[0].path.value
+          value: /
+      - equal:
+          path: metadata.annotations
+          value: {a: b}

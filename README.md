@@ -262,9 +262,21 @@ datastore lookup would break every outstanding notification's image during a
 Valkey outage. Rotating `media.signingKey` invalidates all outstanding links,
 which is the only revocation with a realistic trigger.
 
-Health checks live on **:8080** and are never routed publicly — the networking
-chart has no path matching, so whatever port is public exposes every handler
-bound to it. Metrics are pushed to OTel, not served.
+Health checks live on **:8080** and are never routed publicly — whatever port
+is public exposes every handler bound to it. Metrics are pushed to OTel, not
+served.
+
+The chart can render the route itself. `httpRoute` always targets the media
+port, and only paths under `pathPrefix` (default `/m/`, where every signed link
+lives) are routed:
+
+```yaml
+httpRoute:
+  enabled: true
+  hostnames: [frigate-notifications.example.com]
+  parentRefs:
+    - {name: public, namespace: gateways, sectionName: https}
+```
 
 ## State
 
