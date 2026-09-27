@@ -58,3 +58,22 @@ jobs:
             VERSION=${{ steps.meta.outputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # Updates the Home Assistant app right away; its daily check catches any
+  # release this misses.
+  ha-app:
+    needs: build-and-push
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Start the app's Update workflow
+        env:
+          # Fine-grained token for ConnorsApps/home-assistant-addons, Actions: read and write.
+          GH_TOKEN: ${{ secrets.HA_ADDONS_TOKEN }}
+        run: |
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "::warning::HA_ADDONS_TOKEN is not set; the app's daily check will pick up ${GITHUB_REF_NAME}."
+            exit 0
+          fi
+          gh workflow run update.yml --repo ConnorsApps/home-assistant-addons -f app=frigate-notifications
