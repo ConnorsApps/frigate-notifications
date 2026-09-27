@@ -55,8 +55,16 @@ func (n *Notifier) check(ctx context.Context, cand candidate) error {
 	return err
 }
 
-// buildContent assembles a review's notification: the best still that fits and
-// the clip, if any. Each backend shows what it can.
+// Content builds the notification rule would send for review at phase, for
+// tools that send outside the rule pipeline (cmd/notify-test).
+func (n *Notifier) Content(ctx context.Context, review frigate.ReviewPayload, phase rules.Phase, rule config.Rule, tag string) sender.Message {
+	eventID := review.PrimaryEventID()
+	return n.buildContent(ctx, review, rule, phase, tag, eventID, n.cachedDescription(ctx, eventID))
+}
+
+// buildContent assembles a review's notification: the best still that fits,
+// the snapshot, and the clip with its player page, if any. Each backend shows
+// what it can.
 func (n *Notifier) buildContent(
 	ctx context.Context,
 	review frigate.ReviewPayload,
@@ -75,10 +83,10 @@ func (n *Notifier) buildContent(
 		return c
 	}
 
-	sign := func(cand candidate) string {
-		url, err := n.signer.URL(cand.kind, cand.id)
+	sign := func(kind media.Kind, id string) string {
+		url, err := n.signer.URL(kind, id)
 		if err != nil {
-			n.logger.Warn().Err(err).Str("kind", string(cand.kind)).Str("id", cand.id).Msg("failed to sign media url")
+			n.logger.Warn().Err(err).Str("kind", string(kind)).Str("id", id).Msg("failed to sign media url")
 			return ""
 		}
 		return url
@@ -100,42 +108,37 @@ func (n *Notifier) buildContent(
 		if !attach && !isClip {
 			break
 		}
-		// Later candidates only back up a missing still.
-		if !isClip && c.Image != "" {
-			break
-		}
 
 		err := n.check(ctx, cand)
-		// A clip too big to attach can still be linked.
+		// A clip too big to attach can still be played from its page.
 		if err != nil && !(isClip && errors.Is(err, media.ErrTooLarge)) {
 			continue
 		}
-		url := sign(cand)
+		if isClip {
+			c.ClipURL = sign(media.KindPlay, cand.id)
+		}
+		if err != nil || !attach {
+			continue
+		}
+		url := sign(cand.kind, cand.id)
 		if url == "" {
 			continue
 		}
-		if isClip {
-			c.ClipURL = url
+		if selected == "none" {
+			selected = string(cand.kind)
 		}
-		if err != nil {
-			continue
+		// Every candidate is kept: chat backends can't play the clip and
+		// Android shows only frames of it, so they need the best still, and
+		// single-frame backends want the snapshot even when there is a GIF.
+		switch {
+		case isClip:
+			c.Video = url
+		case c.Image == "":
+			c.Image = url
 		}
-		if attach {
-			if selected == "none" {
-				selected = string(cand.kind)
-			}
-			if isClip {
-				c.Video = url
-			} else {
-				c.Image = url
-			}
+		if cand.kind == media.KindSnapshot {
+			c.Snapshot = url
 		}
-		// Keep going for a still: chat backends can't play the clip and Android
-		// shows only frames of it.
-		if isClip && attach {
-			continue
-		}
-		break
 	}
 
 	n.metrics.MediaSelected(string(phase), selected)

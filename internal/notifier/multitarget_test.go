@@ -334,7 +334,7 @@ func TestStillIsKeptAlongsideTheClip(t *testing.T) {
 		{
 			name:      "clip and still both resolved",
 			wantVideo: true, wantImage: "/m/preview/",
-			wantAsked: []media.Kind{media.KindClip, media.KindPreview},
+			wantAsked: []media.Kind{media.KindClip, media.KindPreview, media.KindSnapshot},
 		},
 		{
 			name:      "still falls back to the snapshot",
@@ -346,7 +346,7 @@ func TestStillIsKeptAlongsideTheClip(t *testing.T) {
 			name:      "an oversized clip is still linkable and the still is used",
 			errs:      map[media.Kind]error{media.KindClip: media.ErrTooLarge},
 			wantImage: "/m/preview/",
-			wantAsked: []media.Kind{media.KindClip, media.KindPreview},
+			wantAsked: []media.Kind{media.KindClip, media.KindPreview, media.KindSnapshot},
 		},
 	}
 
@@ -371,6 +371,9 @@ func TestStillIsKeptAlongsideTheClip(t *testing.T) {
 			}
 			if c.ClipURL == "" {
 				t.Error("the clip should stay linkable")
+			}
+			if !strings.Contains(c.Snapshot, "/m/snapshot/") {
+				t.Errorf("snapshot = %q, want it for single-frame backends", c.Snapshot)
 			}
 			if !slices.Equal(prober.asked, tc.wantAsked) {
 				t.Errorf("probed %v, want %v", prober.asked, tc.wantAsked)

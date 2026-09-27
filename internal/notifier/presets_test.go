@@ -82,30 +82,31 @@ func TestAutoMediaSelection(t *testing.T) {
 		errs      map[media.Kind]error
 		wantVideo string // substring of the video link, "" for none
 		wantImage string // substring of the image link, "" for none
+		wantSnap  bool   // the snapshot is resolved for single-frame backends
 		wantClip  bool
 		wantAsked []media.Kind
 	}{
 		{
-			name: "end resolves the clip and a still", phase: rules.PhaseEnd,
-			wantVideo: "/m/clip/", wantImage: "/m/preview/", wantClip: true,
-			wantAsked: []media.Kind{media.KindClip, media.KindPreview},
+			name: "end resolves the clip, the gif, and the snapshot", phase: rules.PhaseEnd,
+			wantVideo: "/m/clip/", wantImage: "/m/preview/", wantSnap: true, wantClip: true,
+			wantAsked: []media.Kind{media.KindClip, media.KindPreview, media.KindSnapshot},
 		},
 		{
-			name: "clip too big for iOS falls back to the gif but stays linkable", phase: rules.PhaseEnd,
+			name: "clip too big for iOS falls back to the gif but stays playable", phase: rules.PhaseEnd,
 			errs:      map[media.Kind]error{media.KindClip: media.ErrTooLarge},
-			wantImage: "/m/preview/", wantClip: true,
-			wantAsked: []media.Kind{media.KindClip, media.KindPreview},
+			wantImage: "/m/preview/", wantSnap: true, wantClip: true,
+			wantAsked: []media.Kind{media.KindClip, media.KindPreview, media.KindSnapshot},
 		},
 		{
 			name: "missing clip falls back to the gif and is not linked", phase: rules.PhaseEnd,
 			errs:      map[media.Kind]error{media.KindClip: errGone},
-			wantImage: "/m/preview/",
-			wantAsked: []media.Kind{media.KindClip, media.KindPreview},
+			wantImage: "/m/preview/", wantSnap: true,
+			wantAsked: []media.Kind{media.KindClip, media.KindPreview, media.KindSnapshot},
 		},
 		{
 			name: "no clip or gif falls back to the snapshot", phase: rules.PhaseEnd,
 			errs:      map[media.Kind]error{media.KindClip: errGone, media.KindPreview: errGone},
-			wantImage: "/m/snapshot/",
+			wantImage: "/m/snapshot/", wantSnap: true,
 			wantAsked: []media.Kind{media.KindClip, media.KindPreview, media.KindSnapshot},
 		},
 		{
@@ -115,7 +116,7 @@ func TestAutoMediaSelection(t *testing.T) {
 		},
 		{
 			name: "new sends the snapshot and never asks for a clip", phase: rules.PhaseNew,
-			wantImage: "/m/snapshot/",
+			wantImage: "/m/snapshot/", wantSnap: true,
 			wantAsked: []media.Kind{media.KindSnapshot},
 		},
 		{
@@ -125,8 +126,8 @@ func TestAutoMediaSelection(t *testing.T) {
 		},
 		{
 			name: "liveview picks media like auto", phase: rules.PhaseEnd, preset: config.PresetLiveView,
-			wantVideo: "/m/clip/", wantImage: "/m/preview/", wantClip: true,
-			wantAsked: []media.Kind{media.KindClip, media.KindPreview},
+			wantVideo: "/m/clip/", wantImage: "/m/preview/", wantSnap: true, wantClip: true,
+			wantAsked: []media.Kind{media.KindClip, media.KindPreview, media.KindSnapshot},
 		},
 	}
 
@@ -154,8 +155,12 @@ func TestAutoMediaSelection(t *testing.T) {
 			}
 			check("video", c.Video, tc.wantVideo)
 			check("image", c.Image, tc.wantImage)
-			if (c.ClipURL != "") != tc.wantClip {
-				t.Errorf("clipURL = %q, want present=%v", c.ClipURL, tc.wantClip)
+			if (c.Snapshot != "") != tc.wantSnap || tc.wantSnap && !strings.Contains(c.Snapshot, "/m/snapshot/") {
+				t.Errorf("snapshot = %q, want present=%v", c.Snapshot, tc.wantSnap)
+			}
+			// The link opens the player page, which plays on every device.
+			if (c.ClipURL != "") != tc.wantClip || tc.wantClip && !strings.Contains(c.ClipURL, "/m/play/") {
+				t.Errorf("clipURL = %q, want a player page present=%v", c.ClipURL, tc.wantClip)
 			}
 			if !slices.Equal(prober.asked, tc.wantAsked) {
 				t.Errorf("probed %v, want %v", prober.asked, tc.wantAsked)
@@ -175,5 +180,8 @@ func TestClipLinkCoversTheReview(t *testing.T) {
 	// review-end.json: garage, start 1787614651, end 1787614663, padded 2s/3s.
 	if !strings.Contains(c.Video, "/m/clip/1787614649-1787614666-garage.mp4") {
 		t.Errorf("video = %q, want a review-span clip id", c.Video)
+	}
+	if !strings.Contains(c.ClipURL, "/m/play/1787614649-1787614666-garage.html") {
+		t.Errorf("clipURL = %q, want the same span's player page", c.ClipURL)
 	}
 }

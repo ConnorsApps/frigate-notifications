@@ -33,6 +33,12 @@ const (
 	KindSnapshot Kind = "snapshot"
 	KindClip     Kind = "clip"
 	KindPreview  Kind = "preview"
+	// KindPlay is a page that plays a clip: HLS where the browser plays it
+	// natively (Safari can't play Frigate's streamed mp4), else the mp4. It is
+	// rendered here, never fetched from Frigate.
+	KindPlay Kind = "play"
+	// kindVOD signs a clip's HLS files; its links are shaped by vodBase.
+	kindVOD Kind = "vod"
 )
 
 // upstreamPath maps a kind to its Frigate API path. Snapshot takes a Frigate
@@ -55,10 +61,27 @@ func (k Kind) upstreamPath(id string) (string, bool) {
 	return "", false
 }
 
+// accepts reports whether id is well-formed for the kind. A clip, its player
+// and its HLS files all take a ClipID.
+func (k Kind) accepts(id string) bool {
+	if !validID(id) {
+		return false
+	}
+	switch k {
+	case KindSnapshot, KindPreview:
+		return true
+	case KindClip, KindPlay, kindVOD:
+		_, _, _, ok := parseClipID(id)
+		return ok
+	}
+	return false
+}
+
 var kindFiles = map[Kind]struct{ ext, contentType string }{
 	KindSnapshot: {"jpg", "image/jpeg"},
 	KindClip:     {"mp4", "video/mp4"},
 	KindPreview:  {"gif", "image/gif"},
+	KindPlay:     {"html", "text/html; charset=utf-8"},
 }
 
 // ext is the file extension public links carry. iOS infers an attachment's
@@ -159,29 +182,34 @@ func (s *Signer) sign(kind Kind, id string, exp int64) string {
 
 // URL returns a signed, expiring link for the given media.
 func (s *Signer) URL(kind Kind, id string) (string, error) {
-	if _, ok := kind.upstreamPath(id); !ok {
+	if kind.ext() == "" || !kind.accepts(id) {
 		return "", fmt.Errorf("media: unknown kind %q or malformed id %q", kind, id)
 	}
-	if !validID(id) {
-		return "", fmt.Errorf("media: invalid id %q", id)
-	}
-	exp := s.now().Add(s.ttl).Unix()
+	return s.link(kind, id, s.now().Add(s.ttl).Unix()), nil
+}
+
+// link is a signed link expiring at exp. The extension is cosmetic, for the
+// phone's benefit: it isn't signed, and serve strips it before Verify.
+func (s *Signer) link(kind Kind, id string, exp int64) string {
 	q := url.Values{
 		"exp": {strconv.FormatInt(exp, 10)},
 		"sig": {s.sign(kind, id, exp)},
 	}
-	// The extension is cosmetic, for the phone's benefit: it isn't signed, and
-	// serve strips it before Verify.
-	return fmt.Sprintf("%s/m/%s/%s.%s?%s", s.baseURL, kind, id, kind.ext(), q.Encode()), nil
+	return fmt.Sprintf("%s/m/%s/%s.%s?%s", s.baseURL, kind, id, kind.ext(), q.Encode())
+}
+
+// vodBase is the directory a clip's HLS files are served from, expiring at
+// exp. The signature is in the path rather than the query because Frigate's
+// playlists name their files relative to themselves, and resolving a relative
+// URL drops the query.
+func (s *Signer) vodBase(clipID string, exp int64) string {
+	return fmt.Sprintf("%s/m/%s/%s/%d/%s/", s.baseURL, kindVOD, clipID, exp, s.sign(kindVOD, clipID, exp))
 }
 
 // Verify checks a link's signature and expiry, returning the time remaining
 // on it so the response can be cached for exactly that long.
 func (s *Signer) Verify(kind Kind, id, expRaw, sig string) (time.Duration, error) {
-	if !validID(id) {
-		return 0, ErrBadRequest
-	}
-	if _, ok := kind.upstreamPath(id); !ok {
+	if !kind.accepts(id) {
 		return 0, ErrBadRequest
 	}
 	exp, err := strconv.ParseInt(expRaw, 10, 64)

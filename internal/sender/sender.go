@@ -43,9 +43,10 @@ type Message struct {
 
 	Tag string // stable per review; replaces by key where supported
 
-	Image   string // still safe to attach
-	Video   string // clip that fits an inline attachment
-	ClipURL string // clip link, even if too big to attach
+	Image    string // best still safe to attach: the preview GIF once there is one
+	Snapshot string // the JPEG snapshot, for backends that show a single frame
+	Video    string // clip that fits an inline attachment
+	ClipURL  string // clip player page, even if the clip is too big to attach
 
 	ClickURL   string // absolute dashboard link
 	LiveEntity string // hass only

@@ -1,8 +1,11 @@
 package sender
 
 import (
+	"cmp"
 	"context"
 	"fmt"
+	"net/url"
+	"path"
 	"sort"
 	"strings"
 
@@ -65,19 +68,25 @@ func (h *Hass) payload(m Message) map[string]any {
 		data["url"] = h.dashboardPath
 	}
 
-	// Android shows a "video" as a few frames and never a picture; iOS plays an
-	// attachment, which outranks "image". Send both; without a still, the clip
-	// goes alone.
+	// iOS takes "attachment" over "image" and plays a clip in it. Android
+	// ignores "attachment", animates an "image" GIF on 14+, and shows a "video"
+	// as a few frames, so it gets the clip only when there is no still.
+	if att := cmp.Or(m.Video, m.Image); att != "" {
+		a := map[string]any{"url": att}
+		if ct := hassContentType(att); ct != "" {
+			a["content-type"] = ct
+		}
+		data["attachment"] = a
+	}
 	switch {
-	case m.Video != "" && m.Image != "":
-		data["image"] = m.Image
-		data["attachment"] = map[string]any{"url": m.Video, "content-type": "video/mp4"}
-	case m.Video != "":
-		data["video"] = m.Video
 	case m.Image != "":
 		data["image"] = m.Image
+	case m.Video != "":
+		data["video"] = m.Video
 	}
-	if m.LiveEntity != "" {
+	// iOS expands a camera entity into its live stream ahead of any attachment,
+	// so live view lasts only until there is a clip to play instead.
+	if m.LiveEntity != "" && m.Video == "" {
 		data["entity_id"] = m.LiveEntity
 	}
 
@@ -134,6 +143,29 @@ func (h *Hass) payload(m Message) map[string]any {
 		"message": m.Body,
 		"data":    data,
 	}
+}
+
+// hassContentType is the iOS attachment type for a media link, from its
+// extension. The iOS app maps only these names to a type and passes anything
+// else to iOS verbatim as the type hint, which a MIME type is not. Without
+// one, the push server labels whatever is attached "jpeg" because of the
+// "image" key, so the clip must carry its own.
+func hassContentType(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+	switch strings.ToLower(path.Ext(u.Path)) {
+	case ".jpg", ".jpeg":
+		return "jpeg"
+	case ".gif":
+		return "gif"
+	case ".png":
+		return "png"
+	case ".mp4":
+		return "mpeg4"
+	}
+	return ""
 }
 
 // hassSubtitle is the iOS line under the title: severity, zones.

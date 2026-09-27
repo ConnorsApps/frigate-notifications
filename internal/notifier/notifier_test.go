@@ -279,12 +279,18 @@ func TestEndPhaseUpdatesInPlace(t *testing.T) {
 		t.Errorf("update tag = %v, want the original %v so it replaces in place", lastTag, firstTag)
 	}
 
-	// The clip only exists once the review has ended.
-	if _, ok := first.payload["data"].(map[string]any)["attachment"]; ok {
-		t.Error("the initial notification should not carry a clip")
+	// The clip only exists once the review has ended; until then iOS gets
+	// the snapshot.
+	attached := func(payload map[string]any) string {
+		att, _ := payload["data"].(map[string]any)["attachment"].(map[string]any)
+		url, _ := att["url"].(string)
+		return url
 	}
-	if _, ok := last.payload["data"].(map[string]any)["attachment"]; !ok {
-		t.Error("the end update should carry the clip")
+	if url := attached(first.payload); !strings.Contains(url, "/m/snapshot/") {
+		t.Errorf("initial attachment = %q, want the snapshot", url)
+	}
+	if url := attached(last.payload); !strings.Contains(url, "/m/clip/") {
+		t.Errorf("end attachment = %q, want the clip", url)
 	}
 }
 

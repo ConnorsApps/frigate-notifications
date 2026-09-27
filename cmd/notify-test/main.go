@@ -28,6 +28,9 @@ func main() {
 	critical := flag.Bool("critical", false, "send the critical form of the notification (hass: max volume, bypasses Do Not Disturb / silent mode / most Focus modes)")
 	image := flag.String("image", "", "attach this image URL (JPEG/GIF/PNG, ≤10 MB)")
 	video := flag.String("video", "", "attach this video URL (MP4, ≤50 MB); backends that can't play video link it instead")
+	review := flag.String("review", "", "build the notification from this Frigate review id instead, with the media and signed links a real one gets; needs media.frigateURL reachable, e.g. MEDIA_FRIGATE_URL=http://localhost:5000 over a port-forward")
+	preset := flag.String("preset", "auto", "with --review: the preset to build with (auto, text, liveview)")
+	checkMedia := flag.Bool("check-media", false, "with --review: fetch every media link the way a phone would, report status, type, size and codec, and send nothing")
 	tag := flag.String("tag", "notify-test", "notification tag/group; sending again with the same tag updates the notification in place where the backend supports it")
 	updateAfter := flag.Duration("update-after", 0, "after sending, wait this long and send the end-of-review update (clip ready, GenAI text) to the same message, as a real review does; shows whether each backend edits in place and stays quiet")
 	list := flag.Bool("list-services", false, "list notify.* services Home Assistant exposes, then exit")
@@ -43,8 +46,7 @@ func main() {
 	if *list {
 		services, err := hassClient.NotifyServices(ctx)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "notify-test: %v\n", err)
-			os.Exit(1)
+			fail("%v", err)
 		}
 		for _, name := range slices.Sorted(maps.Keys(services)) {
 			fmt.Println(name)
@@ -52,10 +54,56 @@ func main() {
 		return
 	}
 
+	// first is sent now; update, if --update-after is set, replaces it later.
+	// Without it, whole is the one message with everything on it.
+	var first, update, whole sender.Message
+	if *review != "" {
+		var err error
+		first, update, err = reviewMessages(ctx, cfg, hassClient, *review, config.Preset(*preset), *tag)
+		if err != nil {
+			fail("%v", err)
+		}
+		whole = update
+		if *checkMedia {
+			os.Exit(check(ctx, whole))
+		}
+	} else {
+		if *checkMedia {
+			fail("--check-media needs --review")
+		}
+		first = sender.Message{
+			Camera:   "notify_test",
+			Title:    *title,
+			Headline: *message,
+			Body:     *message,
+			Objects:  []string{"person"},
+			Zones:    []string{"Test Zone"},
+			Severity: "alert",
+			Stage:    sender.StageStarted,
+			Start:    time.Now(),
+			Tag:      *tag,
+			Image:    *image,
+			Snapshot: *image,
+			ClickURL: cfg.DashboardURL,
+		}
+		whole = first
+		whole.Video, whole.ClipURL = *video, *video
+
+		update = first
+		update.Stage = sender.StageEnded
+		update.Detail = "Test update: the review has ended and the clip is ready."
+		update.Body = update.Headline + "\n" + update.Detail
+		update.Video, update.ClipURL = *video, *video
+	}
+	if *updateAfter == 0 {
+		first = whole
+	}
+	first.Critical, update.Critical = *critical, *critical
+	update.Update = true
+
 	r, ok := cfg.Recipients[*recipient]
 	if !ok {
-		fmt.Fprintf(os.Stderr, "notify-test: unknown recipient %q\n", *recipient)
-		os.Exit(1)
+		fail("unknown recipient %q", *recipient)
 	}
 
 	senders := sender.New(cfg, hassClient)
@@ -64,27 +112,6 @@ func main() {
 	// error from the backend; check first and say so.
 	for _, err := range senders.Verify(ctx, map[string]config.Recipient{*recipient: r}) {
 		fmt.Fprintf(os.Stderr, "notify-test: warning: %v\n", err)
-	}
-
-	start := time.Now()
-	msg := sender.Message{
-		Camera:   "notify_test",
-		Title:    *title,
-		Headline: *message,
-		Body:     *message,
-		Objects:  []string{"person"},
-		Zones:    []string{"Test Zone"},
-		Severity: "alert",
-		Stage:    sender.StageStarted,
-		Start:    start,
-		Tag:      *tag,
-		Image:    *image,
-		ClickURL: cfg.DashboardURL,
-		Critical: *critical,
-	}
-	if *updateAfter == 0 {
-		// One message with everything on it.
-		msg.Video, msg.ClipURL = *video, *video
 	}
 
 	type delivery struct {
@@ -105,7 +132,7 @@ func main() {
 			continue
 		}
 		fmt.Printf("sending to %s (critical=%v)\n", t, *critical)
-		ref, err := s.Send(ctx, t, msg, "")
+		ref, err := s.Send(ctx, t, first, "")
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "notify-test: %s: send failed: %v\n", t, err)
 			failed++
@@ -116,21 +143,16 @@ func main() {
 	}
 
 	if len(sent)+failed == 0 {
-		fmt.Fprintf(os.Stderr, "notify-test: recipient %q has no target matching %q\n", *recipient, *target)
-		os.Exit(1)
+		fail("recipient %q has no target matching %q", *recipient, *target)
 	}
 
 	if *updateAfter > 0 && len(sent) > 0 {
 		fmt.Printf("waiting %s, then sending the update\n", *updateAfter)
 		time.Sleep(*updateAfter)
 
-		update := msg
-		update.Stage = sender.StageEnded
-		update.Update = true
-		update.End = time.Now()
-		update.Detail = "Test update: the review has ended and the clip is ready."
-		update.Body = update.Headline + "\n" + update.Detail
-		update.Video, update.ClipURL = *video, *video
+		if update.End.IsZero() {
+			update.End = time.Now()
+		}
 		for _, d := range sent {
 			fmt.Printf("updating %s\n", d.target)
 			if _, err := d.s.Send(ctx, d.target, update, d.ref); err != nil {
@@ -149,4 +171,9 @@ func main() {
 		fmt.Println("Home Assistant app under iOS Settings > Notifications > Home Assistant — HA")
 		fmt.Println("accepting the call only proves it reached HA, not that Apple delivered it.")
 	}
+}
+
+func fail(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, "notify-test: "+format+"\n", args...)
+	os.Exit(1)
 }
