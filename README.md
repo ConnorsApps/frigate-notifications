@@ -352,6 +352,13 @@ CI publishes both artifacts to GHCR on every push to `main`:
 | Image | `ghcr.io/connorsapps/frigate-notifications` (`latest`, `<version>` from `v*` tags, `sha-<short>`) |
 | Helm chart | `oci://ghcr.io/connorsapps/charts/frigate-notifications` |
 
+The Home Assistant app lives in
+[ConnorsApps/home-assistant-addons](https://github.com/ConnorsApps/home-assistant-addons).
+A `v*` tag also starts that repo's Update workflow, which moves the app to the new
+image and publishes it. That needs the `HA_ADDONS_TOKEN` secret, a fine-grained
+token for home-assistant-addons with Actions: read and write; without it, the
+app's daily check picks the release up.
+
 ```sh
 helm upgrade --install frigate-notifications oci://ghcr.io/connorsapps/charts/frigate-notifications \
   --version <chart version> --set image.tag=<version> \
