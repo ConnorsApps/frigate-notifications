@@ -111,6 +111,7 @@ func started() Message {
 		Start:    reviewStart,
 		Tag:      reviewTag,
 		Image:    "https://media.test/m/snapshot/e1.jpg?exp=1&sig=abc",
+		Snapshot: "https://media.test/m/snapshot/e1.jpg?exp=1&sig=abc",
 		ClickURL: "https://ha.test/lovelace/frigate",
 	}
 }
@@ -125,7 +126,7 @@ func ended() Message {
 	m.Body = m.Headline + "\n" + m.Detail
 	m.Image = "https://media.test/m/preview/r1.gif?exp=1&sig=abc"
 	m.Video = "https://media.test/m/clip/c1.mp4?exp=1&sig=abc"
-	m.ClipURL = m.Video
+	m.ClipURL = "https://media.test/m/play/c1.html?exp=1&sig=abc"
 	return m
 }
 
@@ -200,16 +201,25 @@ func TestHassSends(t *testing.T) {
 	}
 }
 
-// Android takes the still, iOS the clip attachment.
+// attachmentOf is the iOS attachment's url and content-type.
+func attachmentOf(t *testing.T, data map[string]any) (string, any) {
+	t.Helper()
+	att, ok := data["attachment"].(map[string]any)
+	if !ok {
+		t.Fatalf("no iOS attachment in %v", data)
+	}
+	return att["url"].(string), att["content-type"]
+}
+
+// iOS plays the clip attachment; Android shows the still, animated on 14+.
 func TestHassGivesEachPlatformItsMedia(t *testing.T) {
 	data := hassData(t, ended(), "/lovelace/frigate")
 
 	if data["image"] != message.Image {
 		t.Errorf("image = %v, want the still for Android", data["image"])
 	}
-	att := data["attachment"].(map[string]any)
-	if att["url"] != message.Video || att["content-type"] != "video/mp4" {
-		t.Errorf("attachment = %v, want the clip for iOS", att)
+	if url, ct := attachmentOf(t, data); url != message.Video || ct != "mpeg4" {
+		t.Errorf("attachment = %v (%v), want the clip typed mpeg4 for iOS", url, ct)
 	}
 	if _, ok := data["video"]; ok {
 		t.Error("Android must not be given a video when it has a still")
@@ -223,17 +233,75 @@ func TestHassGivesEachPlatformItsMedia(t *testing.T) {
 func TestHassMediaFallbacks(t *testing.T) {
 	m := ended()
 	m.Image = ""
-	if data := hassData(t, m, ""); data["video"] != m.Video || data["attachment"] != nil || data["image"] != nil {
-		t.Errorf("with no still the clip goes alone as video: %v", data)
+	data := hassData(t, m, "")
+	if data["video"] != m.Video || data["image"] != nil {
+		t.Errorf("with no still Android gets the clip as video: %v", data)
+	}
+	if url, ct := attachmentOf(t, data); url != m.Video || ct != "mpeg4" {
+		t.Errorf("attachment = %v (%v), want the clip for iOS", url, ct)
 	}
 
 	m = ended()
 	m.Video = ""
-	if data := hassData(t, m, ""); data["image"] != m.Image || data["video"] != nil || data["attachment"] != nil {
+	data = hassData(t, m, "")
+	if data["image"] != m.Image || data["video"] != nil {
 		t.Errorf("with no clip that fits the still goes alone: %v", data)
 	}
-	if _, ok := hassData(t, m, "")["url"]; ok {
+	// Left to the push server, a still sent as "image" is typed jpeg.
+	if url, ct := attachmentOf(t, data); url != m.Image || ct != "gif" {
+		t.Errorf("attachment = %v (%v), want the gif typed gif for iOS", url, ct)
+	}
+	if _, ok := data["url"]; ok {
 		t.Error("no dashboardPath configured, so no tap target")
+	}
+
+	m = ended()
+	m.Image, m.Video = "", ""
+	if data := hassData(t, m, ""); data["attachment"] != nil || data["image"] != nil || data["video"] != nil {
+		t.Errorf("no media, no media keys: %v", data)
+	}
+}
+
+// iOS shows a camera entity's live stream ahead of any attachment, so live
+// view lasts until there is a clip to play instead.
+func TestHassLiveViewUntilTheClip(t *testing.T) {
+	m := started()
+	m.LiveEntity = "camera.front"
+	data := hassData(t, m, "")
+	if data["entity_id"] != "camera.front" {
+		t.Errorf("entity_id = %v, want live view before the clip", data["entity_id"])
+	}
+	if url, ct := attachmentOf(t, data); url != m.Image || ct != "jpeg" {
+		t.Errorf("attachment = %v (%v), want the snapshot as the collapsed thumbnail", url, ct)
+	}
+
+	m = ended()
+	m.LiveEntity = "camera.front"
+	if data := hassData(t, m, ""); data["entity_id"] != nil {
+		t.Errorf("entity_id = %v, want the clip to play on expand instead", data["entity_id"])
+	}
+
+	m.Video = ""
+	if data := hassData(t, m, ""); data["entity_id"] != "camera.front" {
+		t.Errorf("entity_id = %v, want live view kept when no clip fits", data["entity_id"])
+	}
+}
+
+// The iOS app maps only these names to a file type and hands anything else,
+// a MIME type included, to iOS as the type hint (home-assistant/iOS,
+// NotificationAttachmentInfo.contentType(for:)).
+func TestHassContentTypeIsAnIOSName(t *testing.T) {
+	for link, want := range map[string]any{
+		"https://m.test/m/snapshot/e1.jpg?exp=1&sig=a": "jpeg",
+		"https://m.test/m/preview/r1.gif?exp=1&sig=a":  "gif",
+		"https://m.test/still.PNG":                     "png",
+		"https://m.test/no-extension":                  nil,
+	} {
+		m := started()
+		m.Image = link
+		if _, ct := attachmentOf(t, hassData(t, m, "")); ct != want {
+			t.Errorf("%s: content-type = %v, want %v", link, ct, want)
+		}
 	}
 }
 
@@ -359,8 +427,11 @@ func TestNtfyNewAlert(t *testing.T) {
 	if body["priority"] != float64(4) || !slices.Equal(tagsOf(body), []string{"walking"}) {
 		t.Errorf("priority/tags = %v / %v, want a high-priority walking person", body["priority"], body["tags"])
 	}
-	if body["attach"] != m.Image || body["click"] != m.ClickURL {
+	if body["attach"] != m.Snapshot || body["click"] != m.ClickURL {
 		t.Errorf("attach/click = %v / %v", body["attach"], body["click"])
+	}
+	if body["filename"] != "front_porch.jpg" {
+		t.Errorf("filename = %v, want the camera rather than an event id", body["filename"])
 	}
 	if _, ok := body["actions"]; ok {
 		t.Error("no clip yet, so no action: the tap already opens the dashboard")
@@ -405,8 +476,9 @@ func TestNtfyUpdateIsQuietAndOffersTheClip(t *testing.T) {
 			if body["priority"] != float64(2) {
 				t.Errorf("priority = %v, want quiet", body["priority"])
 			}
-			if body["attach"] != m.Image {
-				t.Errorf("attach = %v, want the still: clients preview images, not mp4", body["attach"])
+			// Not the GIF: Android auto-downloads only up to 1 MB by default.
+			if body["attach"] != m.Snapshot {
+				t.Errorf("attach = %v, want the snapshot: clients preview images, not mp4", body["attach"])
 			}
 			actions := body["actions"].([]any)
 			clip := actions[0].(map[string]any)
@@ -428,6 +500,16 @@ func TestNtfyKeepsNonASCIIText(t *testing.T) {
 	body := ntfyBody(t, m)
 	if body["title"] != "Café" || body["message"] != "Élodie detected — at the door" {
 		t.Errorf("title/message = %q / %q", body["title"], body["message"])
+	}
+}
+
+// Without a snapshot the GIF is still better than nothing.
+func TestNtfyFallsBackToTheGIF(t *testing.T) {
+	m := ended()
+	m.Snapshot = ""
+	body := ntfyBody(t, m)
+	if body["attach"] != m.Image || body["filename"] != "front_porch.gif" {
+		t.Errorf("attach/filename = %v / %v, want the gif", body["attach"], body["filename"])
 	}
 }
 
@@ -454,7 +536,7 @@ func TestNtfyOmitsWhatItDoesNotHave(t *testing.T) {
 		t.Errorf("auth = %q, want none without a token", req.auth)
 	}
 	body := req.json(t)
-	for _, k := range []string{"attach", "click", "actions"} {
+	for _, k := range []string{"attach", "filename", "click", "actions"} {
 		if _, ok := body[k]; ok {
 			t.Errorf("%s present, want it omitted", k)
 		}
@@ -554,7 +636,7 @@ func TestSlackPostsAndReturnsTheRepliedChannel(t *testing.T) {
 	}
 	ctxText := blocks[3].(map[string]any)["elements"].([]any)[0].(map[string]any)["text"].(string)
 	// Links, not buttons, and & is escaped inside the URL.
-	if !strings.Contains(ctxText, "<https://media.test/m/clip/c1.mp4?exp=1&amp;sig=abc|View clip>") ||
+	if !strings.Contains(ctxText, "<https://media.test/m/play/c1.html?exp=1&amp;sig=abc|View clip>") ||
 		!strings.Contains(ctxText, "<https://ha.test/lovelace/frigate|Dashboard>") {
 		t.Errorf("context = %q", ctxText)
 	}
@@ -885,7 +967,7 @@ func TestDiscordPostsAnEmbedAndReturnsTheMessageID(t *testing.T) {
 	if got := embed["footer"].(map[string]any)["text"]; got != "Driveway · Alert · 42s" {
 		t.Errorf("footer = %q, want where, how serious and how long", got)
 	}
-	want := "Walking to the door.\n\n[▶ View clip](https://media.test/m/clip/c1.mp4?exp=1&sig=abc) · [Dashboard](https://ha.test/lovelace/frigate)"
+	want := "Walking to the door.\n\n[▶ View clip](https://media.test/m/play/c1.html?exp=1&sig=abc) · [Dashboard](https://ha.test/lovelace/frigate)"
 	if embed["description"] != want {
 		t.Errorf("description = %q, want %q", embed["description"], want)
 	}

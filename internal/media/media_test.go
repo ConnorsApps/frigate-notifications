@@ -3,6 +3,7 @@ package media
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -58,7 +59,7 @@ func parseLink(t *testing.T, raw string) (Kind, string, string, string) {
 
 // testID is a valid id for each kind.
 func testID(kind Kind) string {
-	if kind == KindClip {
+	if kind == KindClip || kind == KindPlay {
 		return ClipID("front_porch", 1757000000.5, 1757000012.9)
 	}
 	return "1757000000.123456-abc123"
@@ -66,7 +67,7 @@ func testID(kind Kind) string {
 
 func TestSignAndVerifyRoundTrip(t *testing.T) {
 	s := newSigner(t)
-	for _, kind := range []Kind{KindSnapshot, KindClip, KindPreview} {
+	for _, kind := range []Kind{KindSnapshot, KindClip, KindPreview, KindPlay} {
 		link, err := s.URL(kind, testID(kind))
 		if err != nil {
 			t.Fatalf("URL(%s): %v", kind, err)
@@ -135,6 +136,7 @@ func TestVerifyRejectsExpiredLinks(t *testing.T) {
 type upstream struct {
 	*httptest.Server
 	requests atomic.Int32
+	path     atomic.Value // last request path
 	ranges   atomic.Value // last Range header
 	notFound atomic.Int32 // 404 this many times before succeeding
 }
@@ -143,6 +145,7 @@ func newUpstream(t *testing.T, body string) *upstream {
 	u := &upstream{}
 	u.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		u.requests.Add(1)
+		u.path.Store(r.URL.Path)
 		u.ranges.Store(r.Header.Get("Range"))
 
 		if u.notFound.Load() > 0 {
@@ -252,10 +255,10 @@ func TestProxyRejectsUnsignedRequests(t *testing.T) {
 	}
 }
 
-// A clip requested the instant a review ends can legitimately 404 while
-// Frigate finishes writing its recording segments.
-func TestProxyRetriesClip404(t *testing.T) {
-	up := newUpstream(t, "mp4bytes")
+// An upstream error passes straight through and is never cached for the
+// link's lifetime, which would outlast whatever caused it.
+func TestProxyPassesErrorsThroughUncached(t *testing.T) {
+	up := newUpstream(t, "mp4")
 	up.notFound.Store(1)
 
 	s := newSigner(t)
@@ -269,42 +272,12 @@ func TestProxyRetriesClip404(t *testing.T) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("status = %d, want the retry to succeed with 200", resp.StatusCode)
-	}
-	if got := resp.Header.Get("Cache-Control"); !strings.HasPrefix(got, "private, max-age=") {
-		t.Errorf("Cache-Control = %q, want a private max-age on a real response", got)
-	}
-	if up.requests.Load() < 2 {
-		t.Errorf("upstream saw %d requests, want a retry", up.requests.Load())
-	}
-}
-
-// Snapshots are not retried: they exist immediately, so a 404 is real and
-// retrying only delays the response.
-func TestProxyDoesNotRetrySnapshot404(t *testing.T) {
-	up := newUpstream(t, "jpeg")
-	up.notFound.Store(1)
-
-	s := newSigner(t)
-	proxy := httptest.NewServer(NewProxy(s, up.URL, WithHTTPClient(up.Client())).Handler())
-	t.Cleanup(proxy.Close)
-
-	link, _ := s.URL(KindSnapshot, "evt1")
-	resp, err := http.Get(strings.Replace(link, "https://media.example.com", proxy.URL, 1))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("status = %d, want 404 passed straight through", resp.StatusCode)
 	}
 	if up.requests.Load() != 1 {
 		t.Errorf("upstream saw %d requests, want exactly 1", up.requests.Load())
 	}
-	// A 404 must never be cached for the link's lifetime: a clip that isn't
-	// written yet would then stay missing on the phone long after it exists.
 	if got := resp.Header.Get("Cache-Control"); got != "no-store" {
 		t.Errorf("Cache-Control = %q on a 404, want no-store", got)
 	}
@@ -327,7 +300,7 @@ func TestSignerRejectsDotSegmentIDs(t *testing.T) {
 
 func TestLinksCarryAFileExtension(t *testing.T) {
 	s := newSigner(t)
-	for kind, ext := range map[Kind]string{KindSnapshot: ".jpg", KindClip: ".mp4", KindPreview: ".gif"} {
+	for kind, ext := range map[Kind]string{KindSnapshot: ".jpg", KindClip: ".mp4", KindPreview: ".gif", KindPlay: ".html"} {
 		link, err := s.URL(kind, testID(kind))
 		if err != nil {
 			t.Fatal(err)
@@ -444,5 +417,132 @@ func TestProberCountsStreamedClips(t *testing.T) {
 	}
 	if err := p.Check(context.Background(), KindClip, id, 99); !errors.Is(err, ErrTooLarge) {
 		t.Errorf("100 bytes under a 99 byte limit = %v, want ErrTooLarge", err)
+	}
+}
+
+// get fetches a signed link from the proxy instead of the public host.
+func get(t *testing.T, proxy *httptest.Server, method, link string) *http.Response {
+	t.Helper()
+	req, err := http.NewRequest(method, strings.Replace(link, "https://media.example.com", proxy.URL, 1), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { resp.Body.Close() })
+	return resp
+}
+
+// The player page offers HLS, then the mp4, both signed to expire with it,
+// and fetches nothing from Frigate itself.
+func TestPlayPage(t *testing.T) {
+	up := newUpstream(t, "x")
+	s := newSigner(t)
+	proxy := httptest.NewServer(NewProxy(s, up.URL, WithHTTPClient(up.Client())).Handler())
+	t.Cleanup(proxy.Close)
+
+	clipID := testID(KindPlay)
+	link, err := s.URL(KindPlay, clipID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, exp, _ := parseLink(t, link)
+
+	resp := get(t, proxy, http.MethodGet, link)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	for k, want := range map[string]string{
+		"Content-Type":            "text/html; charset=utf-8",
+		"Content-Security-Policy": playCSP,
+		"Referrer-Policy":         "no-referrer",
+		"X-Content-Type-Options":  "nosniff",
+	} {
+		if got := resp.Header.Get(k); got != want {
+			t.Errorf("%s = %q, want %q", k, got, want)
+		}
+	}
+	if cc := resp.Header.Get("Cache-Control"); !strings.HasPrefix(cc, "private, max-age=") {
+		t.Errorf("Cache-Control = %q, want private", cc)
+	}
+
+	raw, _ := io.ReadAll(resp.Body)
+	body := string(raw)
+	expN, _ := strconv.ParseInt(exp, 10, 64)
+	hls := s.vodBase(clipID, expN) + "master.m3u8"
+	mp4 := strings.ReplaceAll(s.link(KindClip, clipID, expN), "&", "&amp;")
+	hlsAt, mp4At := strings.Index(body, `src="`+hls+`" type="application/vnd.apple.mpegurl"`), strings.Index(body, `src="`+mp4+`" type="video/mp4"`)
+	if hlsAt < 0 || mp4At < 0 || hlsAt > mp4At {
+		t.Errorf("page should offer %s then %s:\n%s", hls, mp4, body)
+	}
+	if up.requests.Load() != 0 {
+		t.Error("the page is rendered here, not fetched from Frigate")
+	}
+
+	if head := get(t, proxy, http.MethodHead, link); head.StatusCode != http.StatusOK {
+		t.Errorf("HEAD = %d, want 200", head.StatusCode)
+	}
+}
+
+// HLS files map onto Frigate's /vod for the clip's span, with the signature in
+// the path so the playlists' relative links stay signed.
+func TestProxyServesVOD(t *testing.T) {
+	up := newUpstream(t, "#EXTM3U")
+	s := newSigner(t)
+	proxy := httptest.NewServer(NewProxy(s, up.URL, WithHTTPClient(up.Client())).Handler())
+	t.Cleanup(proxy.Close)
+
+	base := s.vodBase(testID(KindClip), s.now().Add(time.Hour).Unix())
+	for _, file := range []string{"master.m3u8", "index-v1.m3u8", "init-v1.mp4", "seg-1-v1.m4s"} {
+		resp := get(t, proxy, http.MethodGet, base+file)
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("%s: status = %d, want 200", file, resp.StatusCode)
+		}
+		// testID: 1757000000.5 to 1757000012.9, padded 2s/3s.
+		if got, want := up.path.Load(), "/vod/front_porch/start/1756999998/end/1757000015/"+file; got != want {
+			t.Errorf("%s: upstream path = %q, want %q", file, got, want)
+		}
+		if cc := resp.Header.Get("Cache-Control"); !strings.HasPrefix(cc, "private, max-age=") {
+			t.Errorf("%s: Cache-Control = %q, want private", file, cc)
+		}
+	}
+}
+
+func TestProxyRejectsBadVODLinks(t *testing.T) {
+	up := newUpstream(t, "x")
+	s := newSigner(t)
+	proxy := httptest.NewServer(NewProxy(s, up.URL, WithHTTPClient(up.Client())).Handler())
+	t.Cleanup(proxy.Close)
+
+	clipID := testID(KindClip)
+	exp := s.now().Add(time.Hour).Unix()
+	base := s.vodBase(clipID, exp)
+	prefix := fmt.Sprintf("https://media.example.com/m/vod/%s/%d/", clipID, exp)
+
+	past := s.now().Add(-time.Minute).Unix()
+	for name, link := range map[string]string{
+		"file outside the set":  base + "config.yaml",
+		"mpeg-ts segment":       base + "seg-1.ts",
+		"nested file":           base + "a/master.m3u8",
+		"no file":               base,
+		"forged signature":      prefix + "AAAA/master.m3u8",
+		"play signature":        prefix + s.sign(KindPlay, clipID, exp) + "/master.m3u8",
+		"clip signature":        prefix + s.sign(KindClip, clipID, exp) + "/master.m3u8",
+		"expired":               s.vodBase(clipID, past) + "master.m3u8",
+		"not a clip":            s.vodBase("evt1", exp) + "master.m3u8",
+		"traversal out of vod":  base + "../../../../api/config",
+		"traversal in the file": base + "..%2Fconfig.m3u8",
+		"extended expiry":       strings.Replace(base, strconv.FormatInt(exp, 10), strconv.FormatInt(exp+3600, 10), 1) + "master.m3u8",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if resp := get(t, proxy, http.MethodGet, link); resp.StatusCode == http.StatusOK {
+				t.Errorf("status = %d, want a rejection", resp.StatusCode)
+			}
+		})
+	}
+	if up.requests.Load() != 0 {
+		t.Errorf("upstream saw %d requests, want none", up.requests.Load())
 	}
 }

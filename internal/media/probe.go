@@ -47,7 +47,7 @@ func (p *Prober) Check(ctx context.Context, kind Kind, id string, limit int64) e
 		return fmt.Errorf("media: cannot probe kind %q id %q", kind, id)
 	}
 
-	resp, err := p.fetch(ctx, kind, path, "")
+	resp, err := p.fetch(ctx, path, "")
 	if err != nil {
 		return err
 	}

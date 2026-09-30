@@ -4,22 +4,17 @@ import (
 	"cmp"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
+	"path"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-)
-
-// clipRetryWindow bounds how long a 404 on a clip is retried. Recording
-// segments finalize slightly after a review ends, so a clip fetched the
-// instant the notification lands can legitimately 404.
-const (
-	clipRetryWindow   = 8 * time.Second
-	clipRetryInterval = 2 * time.Second
 )
 
 // Metrics is the observability hook, kept as an interface so the proxy has no
@@ -85,6 +80,10 @@ func (p *Proxy) serve(w http.ResponseWriter, r *http.Request) {
 	}
 
 	kindRaw, name, ok := strings.Cut(strings.TrimPrefix(r.URL.Path, "/"), "/")
+	if ok && Kind(kindRaw) == kindVOD {
+		p.serveVOD(w, r, name)
+		return
+	}
 	if !ok || strings.Contains(name, "/") {
 		p.reject(w, "malformed", http.StatusNotFound)
 		return
@@ -99,19 +98,51 @@ func (p *Proxy) serve(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	remaining, err := p.signer.Verify(kind, id, q.Get("exp"), q.Get("sig"))
 	if err != nil {
-		switch {
-		case errors.Is(err, ErrExpired):
-			p.reject(w, "expired", http.StatusForbidden)
-		case errors.Is(err, ErrBadSignature):
-			p.reject(w, "bad_signature", http.StatusForbidden)
-		default:
-			p.reject(w, "malformed", http.StatusForbidden)
-		}
+		p.rejectLink(w, err)
 		return
 	}
 
-	path, _ := kind.upstreamPath(id)
+	if kind == KindPlay {
+		p.servePlay(w, r, id, q.Get("exp"), remaining)
+		return
+	}
+	upstream, _ := kind.upstreamPath(id)
+	p.forward(w, r, kind, upstream, kind.contentType(), remaining)
+}
 
+// vodFileRe admits the playlists and segments nginx-vod names, and nothing
+// that could leave the clip's directory.
+var vodFileRe = regexp.MustCompile(`^[A-Za-z0-9-]{1,64}\.(m3u8|m4s|mp4)$`)
+
+var vodContentTypes = map[string]string{
+	".m3u8": "application/vnd.apple.mpegurl",
+	".m4s":  "video/iso.segment",
+	".mp4":  "video/mp4",
+}
+
+// serveVOD serves "<clipID>/<exp>/<sig>/<file>", one of a clip's HLS files,
+// from Frigate's /vod on the same in-cluster listener as its API.
+func (p *Proxy) serveVOD(w http.ResponseWriter, r *http.Request, rest string) {
+	parts := strings.Split(rest, "/")
+	if len(parts) != 4 || !vodFileRe.MatchString(parts[3]) {
+		p.reject(w, "malformed", http.StatusForbidden)
+		return
+	}
+	clipID, expRaw, sig, file := parts[0], parts[1], parts[2], parts[3]
+
+	remaining, err := p.signer.Verify(kindVOD, clipID, expRaw, sig)
+	if err != nil {
+		p.rejectLink(w, err)
+		return
+	}
+	camera, start, end, _ := parseClipID(clipID)
+	upstream := fmt.Sprintf("/vod/%s/start/%d/end/%d/%s", camera, start, end, file)
+	p.forward(w, r, kindVOD, upstream, vodContentTypes[path.Ext(file)], remaining)
+}
+
+// forward streams one upstream response to the client, cacheable for the time
+// left on its link.
+func (p *Proxy) forward(w http.ResponseWriter, r *http.Request, kind Kind, upstream, contentType string, remaining time.Duration) {
 	select {
 	case p.sem <- struct{}{}:
 		defer func() { <-p.sem }()
@@ -122,26 +153,24 @@ func (p *Proxy) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp, err := p.fetch(r.Context(), kind, path, r.Header.Get("Range"))
+	resp, err := p.fetch(r.Context(), upstream, r.Header.Get("Range"))
 	if err != nil {
-		p.logger.Warn().Err(err).Str("kind", string(kind)).Str("id", id).Msg("upstream fetch failed")
+		p.logger.Warn().Err(err).Str("kind", string(kind)).Str("path", upstream).Msg("upstream fetch failed")
 		p.reject(w, "upstream_error", http.StatusBadGateway)
 		return
 	}
 	defer resp.Body.Close()
 
 	h := w.Header()
-	h.Set("Content-Type", cmp.Or(resp.Header.Get("Content-Type"), kind.contentType()))
+	h.Set("Content-Type", cmp.Or(resp.Header.Get("Content-Type"), contentType))
 	// Phones range-request mp4; mirror upstream's range headers and status.
 	for _, k := range []string{"Content-Length", "Content-Range", "Accept-Ranges", "Last-Modified", "ETag"} {
 		if v := resp.Header.Get(k); v != "" {
 			h.Set(k, v)
 		}
 	}
-	// Only a real response is cacheable. A clip fetched before its recording
-	// segments finalize legitimately 404s — the retry above exists for that —
-	// and caching that 404 for the link's whole lifetime would leave the phone
-	// showing nothing long after the clip exists.
+	// Only a real response is cacheable: an error cached for the link's whole
+	// lifetime would outlast whatever caused it.
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		h.Set("Cache-Control", "private, max-age="+strconv.Itoa(int(remaining.Seconds())))
 	} else {
@@ -177,41 +206,31 @@ func newFrigate(frigateURL string, timeout time.Duration) frigate {
 	}
 }
 
-// fetch performs the upstream request, retrying a 404 on clips while the
-// recording segments finalize.
-func (u frigate) fetch(ctx context.Context, kind Kind, path, rangeHeader string) (*http.Response, error) {
-	deadline := time.Now()
-	if kind == KindClip {
-		deadline = deadline.Add(clipRetryWindow)
+// fetch performs the upstream request.
+func (u frigate) fetch(ctx context.Context, upstream, rangeHeader string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.base+upstream, nil)
+	if err != nil {
+		return nil, err
 	}
-
-	for {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.base+path, nil)
-		if err != nil {
-			return nil, err
-		}
-		if rangeHeader != "" {
-			req.Header.Set("Range", rangeHeader)
-		}
-
-		resp, err := u.client.Do(req)
-		if err != nil {
-			return nil, err
-		}
-		if resp.StatusCode != http.StatusNotFound || !time.Now().Before(deadline) {
-			return resp, nil
-		}
-		resp.Body.Close()
-
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(clipRetryInterval):
-		}
+	if rangeHeader != "" {
+		req.Header.Set("Range", rangeHeader)
 	}
+	return u.client.Do(req)
 }
 
 func (p *Proxy) reject(w http.ResponseWriter, reason string, code int) {
 	p.metrics.MediaRejected(reason)
 	http.Error(w, http.StatusText(code), code)
+}
+
+// rejectLink answers a link that failed verification.
+func (p *Proxy) rejectLink(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, ErrExpired):
+		p.reject(w, "expired", http.StatusForbidden)
+	case errors.Is(err, ErrBadSignature):
+		p.reject(w, "bad_signature", http.StatusForbidden)
+	default:
+		p.reject(w, "malformed", http.StatusForbidden)
+	}
 }

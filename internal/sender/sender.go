@@ -5,6 +5,8 @@ package sender
 import (
 	"context"
 	"fmt"
+	"net/url"
+	"path"
 	"strings"
 	"time"
 
@@ -43,9 +45,10 @@ type Message struct {
 
 	Tag string // stable per review; replaces by key where supported
 
-	Image   string // still safe to attach
-	Video   string // clip that fits an inline attachment
-	ClipURL string // clip link, even if too big to attach
+	Image    string // best still safe to attach: the preview GIF once there is one
+	Snapshot string // the JPEG snapshot, for backends that show a single frame
+	Video    string // clip that fits an inline attachment
+	ClipURL  string // clip player page, even if the clip is too big to attach
 
 	ClickURL   string // absolute dashboard link
 	LiveEntity string // hass only
@@ -142,6 +145,15 @@ func formatDuration(d time.Duration) string {
 		return fmt.Sprintf("%dm %ds", int(d.Minutes()), int(d.Seconds())%60)
 	}
 	return fmt.Sprintf("%dh %dm", int(d.Hours()), int(d.Minutes())%60)
+}
+
+// linkExt is a media link's file extension, lowercased: ".jpg".
+func linkExt(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+	return strings.ToLower(path.Ext(u.Path))
 }
 
 func capitalize(s string) string {

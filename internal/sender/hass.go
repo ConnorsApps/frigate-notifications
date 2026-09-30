@@ -1,6 +1,7 @@
 package sender
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"sort"
@@ -65,19 +66,25 @@ func (h *Hass) payload(m Message) map[string]any {
 		data["url"] = h.dashboardPath
 	}
 
-	// Android shows a "video" as a few frames and never a picture; iOS plays an
-	// attachment, which outranks "image". Send both; without a still, the clip
-	// goes alone.
+	// iOS takes "attachment" over "image" and plays a clip in it. Android
+	// ignores "attachment", animates an "image" GIF on 14+, and shows a "video"
+	// as a few frames, so it gets the clip only when there is no still.
+	if att := cmp.Or(m.Video, m.Image); att != "" {
+		a := map[string]any{"url": att}
+		if ct, ok := hassTypes[linkExt(att)]; ok {
+			a["content-type"] = ct
+		}
+		data["attachment"] = a
+	}
 	switch {
-	case m.Video != "" && m.Image != "":
-		data["image"] = m.Image
-		data["attachment"] = map[string]any{"url": m.Video, "content-type": "video/mp4"}
-	case m.Video != "":
-		data["video"] = m.Video
 	case m.Image != "":
 		data["image"] = m.Image
+	case m.Video != "":
+		data["video"] = m.Video
 	}
-	if m.LiveEntity != "" {
+	// iOS expands a camera entity into its live stream ahead of any attachment,
+	// so live view lasts only until there is a clip to play instead.
+	if m.LiveEntity != "" && m.Video == "" {
 		data["entity_id"] = m.LiveEntity
 	}
 
@@ -135,6 +142,11 @@ func (h *Hass) payload(m Message) map[string]any {
 		"data":    data,
 	}
 }
+
+// hassTypes are the iOS app's attachment types by extension. It passes any
+// other content-type, a MIME type included, to iOS as the type hint, and the
+// push server types an attachment "jpeg" when "image" is set and it has none.
+var hassTypes = map[string]string{".jpg": "jpeg", ".jpeg": "jpeg", ".gif": "gif", ".png": "png", ".mp4": "mpeg4"}
 
 // hassSubtitle is the iOS line under the title: severity, zones.
 func hassSubtitle(m Message) string {

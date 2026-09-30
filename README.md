@@ -116,11 +116,12 @@ twice.
 
 Media is picked automatically. Each candidate is probed against Frigate
 in-cluster, and the first one that exists and fits wins; if none does, the push
-goes out as text. The clip and the best still (preview gif, else snapshot) are
-resolved independently, and each backend shows what it can: the Home Assistant
-app plays the clip on iOS and shows the still on Android (which shows only a few
-frames of a video), while Slack, Discord, and ntfy can't play a clip inline, so
-they get the still and the clip as a link; see [Backends](#backends).
+goes out as text. The clip, the best still (preview gif, else snapshot) and the
+snapshot are resolved independently, and each backend shows what it can: the
+Home Assistant app plays the clip on iOS and shows the still on Android (which
+shows only a few frames of a video), while Slack, Discord, and ntfy can't play a
+clip inline, so they get a still and a "View Clip" link; see
+[Backends](#backends).
 
 | phase | order tried |
 |---|---|
@@ -131,7 +132,11 @@ The clip spans the whole review (`/api/<camera>/start/<s>/end/<e>/clip.mp4`, 2s
 before and 3s after), not just its first detection. The clip cap is below iOS's
 50 MB hard limit because the notification extension has ~30 s to download it on
 whatever connection the phone has. A clip too big to attach is still linked from
-the "View Clip" action.
+"View Clip", which opens a [player page](#media-proxy), not the mp4.
+
+H.265 cameras need Frigate's `ffmpeg: {apple_compatibility: true}`, or their
+clips are tagged `hev1`, which iOS won't play (`notify-test --check-media`
+reports the tag).
 
 `preset` is optional and only overrides that:
 
@@ -139,7 +144,7 @@ the "View Clip" action.
 |---|---|
 | `auto` (default) | the selection above |
 | `text` | no attachment (the "View Clip" action is still offered) |
-| `liveview` | `auto`, plus the camera's `liveViewEntity` for an iOS live stream on expand |
+| `liveview` | `auto`, plus the camera's `liveViewEntity` for an iOS live stream on expand, until the clip exists (iOS would show the camera over it) |
 
 `frigate_notify_media_selected_total{phase,kind}` counts what each notification
 carried; `kind="none"` means every candidate failed and it fell back to text
@@ -184,8 +189,8 @@ recipients:
 
 | | picture | clip | critical | update (clip ready, GenAI text) |
 |---|---|---|---|---|
-| `hass` | still as `image` (Android) and the clip as an `attachment` (iOS) | "View Clip" action | iOS critical alert, Android `alarm_stream` channel | replaces by `tag`; Android `alert_once`, iOS passive, no sound |
-| `ntfy` | still as `attach` | "View Clip" action | priority 5, 🚨 tag | replaces by `sequence_id`, priority 2 |
+| `hass` | still as `image` (Android, animated on 14+); the clip, else the still, as an `attachment` (iOS) | "View Clip" action | iOS critical alert, Android `alarm_stream` channel | replaces by `tag`; Android `alert_once`, iOS passive, no sound |
+| `ntfy` | snapshot as `attach` | "View Clip" action | priority 5, 🚨 tag | replaces by `sequence_id`, priority 2 |
 | `slack` | image block | link in the context line | 🚨 in the header | `chat.update` edits the message |
 | `discord` | embed image | link in the embed | red embed, 🚨 in the headline | edits the message |
 
@@ -197,7 +202,9 @@ backend lays that out for itself:
 - **`hass`**: grouped per camera, "Alert · Zone" as the iOS subtitle, the review
   start as the Android timestamp. Alerts are time-sensitive on iOS so they get
   through a Focus mode; detections are not. A digest uses its own low-importance
-  channel.
+  channel. Android shows no picture when the app's only Home Assistant URL is
+  `http://` and the phone is away from home, unless it allows insecure
+  connections.
 - **`ntfy`**: an emoji per object (`walking`, `dog`, `cat`, `car`, `package`,
   else `eyes`; plus 🚨 for critical), priority 4 for an alert, 3 for a detection, 5 for critical, 2
   for anything quiet. Message text is plain: markdown is not rendered on iOS.
@@ -225,9 +232,10 @@ message is re-posted without the image rather than lost.
 **ntfy.** Set `ntfy.url` (and `ntfy.token` if the server needs one). Updating a
 notification in place needs **ntfy server ≥ 2.16** and Android app ≥ 1.22.2;
 on an older server each update arrives as a second notification. The iOS app
-does not replace: an update arrives as a second, passive notification. A
-self-hosted server needs `upstream-base-url: https://ntfy.sh` for instant
-delivery to iOS. Authenticate with an access token (`tk_...`, sent as a Bearer
+does not replace: an update arrives as a second, passive notification. It
+attaches the snapshot, not the gif: Android auto-downloads only up to 1 MB by
+default, and a long review's gif is bigger. A self-hosted server needs
+`upstream-base-url: https://ntfy.sh` for instant delivery to iOS. Authenticate with an access token (`tk_...`, sent as a Bearer
 token) for a write-only user on the topic, with `auth-default-access: deny-all`
 on the server. The sequence id is derived from the review id with anything
 outside `A-Z a-z 0-9 - _` replaced, because ntfy rejects the "." in Frigate's
@@ -254,13 +262,22 @@ needs a session a push notification can't carry. Notifications therefore link
 to `frigate-notifications.example.com`, served by this service on **:8081**, which
 fetches from Frigate in-cluster on the phone's behalf.
 
-Links look like `/m/<kind>/<id>.<ext>?exp=…&sig=…`. The extension (`jpg`, `gif`,
-`mp4`) is unsigned and only there because iOS infers an attachment's type from
-it. Links are `HMAC-SHA256(kind/id/exp)`, verified in constant time, and expire
-after `media.linkTTL`. They're stateless on purpose: a link that needed a
+Links look like `/m/<kind>/<id>.<ext>?exp=…&sig=…`: a snapshot (`jpg`), preview
+(`gif`), clip (`mp4`) or clip player page (`html`). The extension is unsigned
+and only there because phones infer a file's type from it (the Android app
+animates a GIF only when the path ends in `gif`). Links are
+`HMAC-SHA256(kind/id/exp)`, verified in constant time, and expire after
+`media.linkTTL`. They're stateless on purpose: a link that needed a
 datastore lookup would break every outstanding notification's image during a
 Valkey outage. Rotating `media.signingKey` invalidates all outstanding links,
 which is the only revocation with a realistic trigger.
+
+"View Clip" opens `/m/play/<clip>.html`, a page that plays Frigate's HLS
+(`/vod`) where the browser can, as iOS and Android do, and the mp4 elsewhere:
+Safari can't reliably play Frigate's mp4, which is streamed with no length or
+byte ranges. The HLS files are served from `/m/vod/<clip>/<exp>/<sig>/<file>`,
+signed in the path because the playlists link their files relatively, which
+drops a query string.
 
 Health checks live on **:8080** and are never routed publicly — whatever port
 is public exposes every handler bound to it. Metrics are pushed to OTel, not
@@ -457,6 +474,30 @@ backend with `--target slack|ntfy|discord|hass`. It answers what replay can't:
 whether the message actually shows up, image and all. `--update-after 10s` then
 sends the end-of-review update to the same message, which is how to check on
 your own devices that each backend edits in place and stays quiet.
+
+`--review <id>` builds both from a real Frigate review, with production media
+and links. `--check-media` instead fetches every link as a phone would, player
+page and HLS included, and reports status, type, size and codec. Frigate must be
+reachable:
+
+```sh
+kubectl -n frigate port-forward svc/frigate 5000 &
+MEDIA_FRIGATE_URL=http://localhost:5000 go run ./cmd/notify-test --review <id> --check-media
+MEDIA_FRIGATE_URL=http://localhost:5000 go run ./cmd/notify-test --review <id> --update-after 30s
+```
+
+What each device should show:
+
+| device | first push | end-of-review update |
+|---|---|---|
+| iPhone (Home Assistant) | snapshot thumbnail; `liveview` expands to the live camera | replaces it silently; expanding plays the clip; "View Clip" plays in Safari |
+| Android 14+ (Home Assistant) | snapshot as a big picture | replaces it silently; the gif animates when expanded |
+| Android 13 and older | snapshot | the gif, as a still |
+| ntfy Android / iOS | snapshot | replaces it quietly / a second, passive notification |
+| Slack, Discord | snapshot | the message is edited to the animated gif; "View clip" plays |
+
+Android's `alert_once` applies only while the notification is showing, so an
+update to one already swiped away alerts again.
 
 ## Replaying a decision
 

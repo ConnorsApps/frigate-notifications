@@ -1,6 +1,7 @@
 package sender
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"net/http"
@@ -36,6 +37,7 @@ type ntfyMessage struct {
 	Tags       []string     `json:"tags,omitempty"`
 	Click      string       `json:"click,omitempty"`
 	Attach     string       `json:"attach,omitempty"`
+	Filename   string       `json:"filename,omitempty"`
 	Actions    []ntfyAction `json:"actions,omitempty"`
 	SequenceID string       `json:"sequence_id,omitempty"`
 }
@@ -76,9 +78,15 @@ func (n *Ntfy) render(t config.Target, m Message) ntfyMessage {
 		Title:   m.Title,
 		Message: m.Body,
 		Click:   m.ClickURL,
-		// Clients preview images, not mp4: attach the still, button the clip.
-		Attach:     m.Image,
+		// Clients preview images, not mp4: attach a still, button the clip.
+		// The snapshot: Android auto-downloads only up to 1 MB by default, and
+		// a long review's GIF is bigger.
+		Attach:     cmp.Or(m.Snapshot, m.Image),
 		SequenceID: ntfySequenceID(m.Tag),
+	}
+	if msg.Attach != "" {
+		// Shown in the notification; the link's own name is an event id.
+		msg.Filename = cmp.Or(m.Camera, "frigate") + linkExt(msg.Attach)
 	}
 
 	if m.ClipURL != "" {
