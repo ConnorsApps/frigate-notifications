@@ -475,14 +475,14 @@ calling any of them.
 
 ```sh
 cp config-example.yaml config.yaml
-# fill in secrets; leave redis.url and db.url unset (compose sets them)
+# fill in secrets; compose overrides redis.url and db.url
 docker compose up -d
 ```
 
 Set `POSTGRES_PASSWORD` in the environment or an `.env` file. Only the media
-port (`8081`) is published; put a reverse proxy in front of it and point
-`media.publicBaseURL` at that. `mqtt.broker` and `media.frigateURL` must be
-reachable from inside the container, so not `localhost`.
+port (`8081`) is published: put a reverse proxy in front of it and point
+`media.publicBaseURL` there. `mqtt.broker` and `media.frigateURL` must be
+reachable from the container, so not `localhost`.
 
 `cmd/notify-test` sends one real notification to a recipient's targets, or to one
 backend with `--target slack|ntfy|discord|hass`. It answers what replay can't:

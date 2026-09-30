@@ -1,26 +1,18 @@
-# Example: run frigate-notify with Valkey (cooldown/rate-cap state) and
-# PostgreSQL (audit log). Frigate, your MQTT broker and Home Assistant are
-# assumed to exist already.
-#
-#   cp config-example.yaml config.yaml   # fill in secrets; leave redis.url / db.url unset
-#   docker compose up -d
-#
-# In config.yaml, mqtt.broker and media.frigateURL must be reachable from inside
-# the container (a LAN IP or hostname, not localhost).
+# Example: frigate-notify with Valkey (state) and PostgreSQL (audit log).
+# Assumes Frigate, MQTT and Home Assistant already exist; see README.
 services:
   frigate-notify:
     image: ghcr.io/connorsapps/frigate-notifications:latest
     restart: unless-stopped
     environment:
       CONFIG_PATH: /etc/frigate-notify/config.yaml
-      # Env overrides the matching config keys.
+      # Override redis.url / db.url from config.yaml.
       REDIS_URL: redis://valkey:6379
       DB_URL: postgres://frigate-notify:${POSTGRES_PASSWORD:-change-me}@postgres:5432/frigate-notify
     volumes:
       - ./config.yaml:/etc/frigate-notify/config.yaml:ro
     ports:
-      # Signed media links; put a reverse proxy in front and point
-      # media.publicBaseURL at it. :8080 (health, metrics) stays internal.
+      # Signed media links only; :8080 (health, metrics) stays internal.
       - "8081:8081"
     depends_on:
       valkey:
@@ -47,7 +39,7 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U frigate-notify -d frigate-notify"]
+      test: ["CMD-SHELL", "pg_isready -U frigate-notify"]
       interval: 5s
       timeout: 3s
       retries: 10
