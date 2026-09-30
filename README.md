@@ -469,6 +469,21 @@ go run ./cmd/server
 Set `dryRun: true` to build and log each backend's full payload without
 calling any of them.
 
+## Running with Docker Compose
+
+`docker-compose.yml` runs the published image alongside Valkey and PostgreSQL:
+
+```sh
+cp config-example.yaml config.yaml
+# fill in secrets; leave redis.url and db.url unset (compose sets them)
+docker compose up -d
+```
+
+Set `POSTGRES_PASSWORD` in the environment or an `.env` file. Only the media
+port (`8081`) is published; put a reverse proxy in front of it and point
+`media.publicBaseURL` at that. `mqtt.broker` and `media.frigateURL` must be
+reachable from inside the container, so not `localhost`.
+
 `cmd/notify-test` sends one real notification to a recipient's targets, or to one
 backend with `--target slack|ntfy|discord|hass`. It answers what replay can't:
 whether the message actually shows up, image and all. `--update-after 10s` then
