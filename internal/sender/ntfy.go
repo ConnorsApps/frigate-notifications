@@ -5,8 +5,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"net/url"
-	"path"
 	"strings"
 	"time"
 
@@ -80,15 +78,15 @@ func (n *Ntfy) render(t config.Target, m Message) ntfyMessage {
 		Title:   m.Title,
 		Message: m.Body,
 		Click:   m.ClickURL,
-		// Clients preview images, not mp4: attach the still, button the clip.
-		// The snapshot, because Android auto-downloads only up to 1 MB by
-		// default and a long review's preview GIF is bigger.
+		// Clients preview images, not mp4: attach a still, button the clip.
+		// The snapshot: Android auto-downloads only up to 1 MB by default, and
+		// a long review's GIF is bigger.
 		Attach:     cmp.Or(m.Snapshot, m.Image),
 		SequenceID: ntfySequenceID(m.Tag),
 	}
 	if msg.Attach != "" {
 		// Shown in the notification; the link's own name is an event id.
-		msg.Filename = cmp.Or(m.Camera, "frigate") + ntfyExt(msg.Attach)
+		msg.Filename = cmp.Or(m.Camera, "frigate") + linkExt(msg.Attach)
 	}
 
 	if m.ClipURL != "" {
@@ -129,15 +127,6 @@ func ntfyObjectTag(objects []string) string {
 		}
 	}
 	return "eyes"
-}
-
-// ntfyExt is the extension of a media link, e.g. ".jpg".
-func ntfyExt(rawURL string) string {
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return ""
-	}
-	return path.Ext(u.Path)
 }
 
 // ntfySequenceID makes a tag a valid sequence id (letters, digits, "-", "_",

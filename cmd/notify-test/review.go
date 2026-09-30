@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -13,38 +14,29 @@ import (
 
 	"github.com/ConnorsApps/frigate-notifications/internal/config"
 	"github.com/ConnorsApps/frigate-notifications/internal/frigate"
-	"github.com/ConnorsApps/frigate-notifications/internal/hasscache"
 	"github.com/ConnorsApps/frigate-notifications/internal/media"
 	"github.com/ConnorsApps/frigate-notifications/internal/notifier"
 	"github.com/ConnorsApps/frigate-notifications/internal/rules"
 	"github.com/ConnorsApps/frigate-notifications/internal/sender"
-	"github.com/ConnorsApps/frigate-notifications/internal/store"
 )
 
 // reviewMessages builds the new-phase notification for a real Frigate review
 // and its end-of-review update, through the notifier's own media selection,
 // so every link is one the proxy will serve.
-func reviewMessages(ctx context.Context, cfg *config.Config, states hasscache.StateReader, id string, preset config.Preset, tag string) (first, update sender.Message, err error) {
-	if !cfg.Media.Enabled() {
-		return first, update, errors.New("--review needs media.frigateURL, media.publicBaseURL and media.signingKey")
-	}
+func reviewMessages(ctx context.Context, cfg *config.Config, id string, preset config.Preset, tag string) (first, last sender.Message, err error) {
 	signer, err := media.SignerFor(cfg.Media)
-	if err != nil {
-		return first, update, err
+	if signer == nil {
+		return first, last, cmp.Or(err, errors.New("--review needs media.frigateURL, media.publicBaseURL and media.signingKey"))
 	}
 	review, err := fetchReview(ctx, cfg.Media.FrigateURL, id)
 	if err != nil {
-		return first, update, err
-	}
-	if _, ok := cfg.Cameras[review.Camera]; !ok {
-		return first, update, fmt.Errorf("review %s is on camera %q, which config.yaml doesn't list", id, review.Camera)
+		return first, last, err
 	}
 	if review.EndTime == nil {
 		fmt.Printf("review %s is still in progress: the update will have no clip yet\n", id)
 	}
 
-	n := notifier.New(cfg, sender.Registry{}, hasscache.New(states, cfg.Location), store.New(ctx, "", nil), signer,
-		notifier.WithMediaProber(media.NewProber(cfg.Media.FrigateURL)))
+	n := notifier.New(cfg, nil, nil, nil, signer, notifier.WithMediaProber(media.NewProber(cfg.Media.FrigateURL)))
 	rule := config.Rule{Name: "notify-test", Preset: preset}
 	return n.Content(ctx, review, rules.PhaseNew, rule, tag), n.Content(ctx, review, rules.PhaseEnd, rule, tag), nil
 }

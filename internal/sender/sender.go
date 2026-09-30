@@ -5,6 +5,8 @@ package sender
 import (
 	"context"
 	"fmt"
+	"net/url"
+	"path"
 	"strings"
 	"time"
 
@@ -143,6 +145,15 @@ func formatDuration(d time.Duration) string {
 		return fmt.Sprintf("%dm %ds", int(d.Minutes()), int(d.Seconds())%60)
 	}
 	return fmt.Sprintf("%dh %dm", int(d.Hours()), int(d.Minutes())%60)
+}
+
+// linkExt is a media link's file extension, lowercased: ".jpg".
+func linkExt(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+	return strings.ToLower(path.Ext(u.Path))
 }
 
 func capitalize(s string) string {

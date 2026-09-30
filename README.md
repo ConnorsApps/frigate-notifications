@@ -126,18 +126,17 @@ clip inline, so they get a still and a "View Clip" link; see
 | phase | order tried |
 |---|---|
 | `new` | snapshot → text |
-| `end` | clip (≤25 MB), then the first still that fits: review preview gif (≤10 MB) → snapshot; text if neither. The snapshot is resolved either way, for backends that show a single frame |
+| `end` | clip (≤25 MB), then the first still that fits: review preview gif (≤10 MB) → snapshot; text if neither |
 
 The clip spans the whole review (`/api/<camera>/start/<s>/end/<e>/clip.mp4`, 2s
 before and 3s after), not just its first detection. The clip cap is below iOS's
 50 MB hard limit because the notification extension has ~30 s to download it on
 whatever connection the phone has. A clip too big to attach is still linked from
-the "View Clip" action, which opens a [player page](#media-proxy) rather than
-the mp4: Safari can't reliably play the mp4 Frigate streams.
+"View Clip", which opens a [player page](#media-proxy), not the mp4.
 
-Cameras recording H.265 need `ffmpeg: {apple_compatibility: true}` in Frigate
-(globally or per camera), or their clips are tagged `hev1`, which iOS won't
-play. `notify-test --check-media` reports the tag.
+H.265 cameras need Frigate's `ffmpeg: {apple_compatibility: true}`, or their
+clips are tagged `hev1`, which iOS won't play (`notify-test --check-media`
+reports the tag).
 
 `preset` is optional and only overrides that:
 
@@ -145,7 +144,7 @@ play. `notify-test --check-media` reports the tag.
 |---|---|
 | `auto` (default) | the selection above |
 | `text` | no attachment (the "View Clip" action is still offered) |
-| `liveview` | `auto`, plus the camera's `liveViewEntity` for an iOS live stream on expand, until the clip exists: iOS expands a camera ahead of any attachment, so the end-of-review update drops it and plays the clip instead |
+| `liveview` | `auto`, plus the camera's `liveViewEntity` for an iOS live stream on expand, until the clip exists (iOS would show the camera over it) |
 
 `frigate_notify_media_selected_total{phase,kind}` counts what each notification
 carried; `kind="none"` means every candidate failed and it fell back to text
@@ -203,11 +202,9 @@ backend lays that out for itself:
 - **`hass`**: grouped per camera, "Alert · Zone" as the iOS subtitle, the review
   start as the Android timestamp. Alerts are time-sensitive on iOS so they get
   through a Focus mode; detections are not. A digest uses its own low-importance
-  channel. The iOS attachment's `content-type` is one of the names the app
-  maps (`jpeg`, `gif`, `mpeg4`), never a MIME type, which it would pass to iOS
-  as an invalid type hint. The Android app skips pictures when its only Home
-  Assistant URL is `http://`, the phone is away from home, and insecure
-  connections aren't allowed, even though the proxy's link is public.
+  channel. Android shows no picture when the app's only Home Assistant URL is
+  `http://` and the phone is away from home, unless it allows insecure
+  connections.
 - **`ntfy`**: an emoji per object (`walking`, `dog`, `cat`, `car`, `package`,
   else `eyes`; plus 🚨 for critical), priority 4 for an alert, 3 for a detection, 5 for critical, 2
   for anything quiet. Message text is plain: markdown is not rendered on iOS.
@@ -235,11 +232,10 @@ message is re-posted without the image rather than lost.
 **ntfy.** Set `ntfy.url` (and `ntfy.token` if the server needs one). Updating a
 notification in place needs **ntfy server ≥ 2.16** and Android app ≥ 1.22.2;
 on an older server each update arrives as a second notification. The iOS app
-does not replace: an update arrives as a second, passive notification. The
-attachment is the snapshot, not the preview gif: the Android app auto-downloads
-only up to 1 MB by default (never on Android 9 and older), and a long review's
-gif is bigger. A self-hosted server needs `upstream-base-url: https://ntfy.sh`
-for instant delivery to iOS. Authenticate with an access token (`tk_...`, sent as a Bearer
+does not replace: an update arrives as a second, passive notification. It
+attaches the snapshot, not the gif: Android auto-downloads only up to 1 MB by
+default, and a long review's gif is bigger. A self-hosted server needs
+`upstream-base-url: https://ntfy.sh` for instant delivery to iOS. Authenticate with an access token (`tk_...`, sent as a Bearer
 token) for a write-only user on the topic, with `auth-default-access: deny-all`
 on the server. The sequence id is derived from the review id with anything
 outside `A-Z a-z 0-9 - _` replaced, because ntfy rejects the "." in Frigate's
@@ -276,14 +272,12 @@ datastore lookup would break every outstanding notification's image during a
 Valkey outage. Rotating `media.signingKey` invalidates all outstanding links,
 which is the only revocation with a realistic trigger.
 
-"View Clip" opens the player page, `/m/play/<clip>.html`. It offers the clip
-as HLS from Frigate's `/vod` first, which iOS and Android play natively, and the
-mp4 second, for desktop browsers without HLS: Safari can't reliably play the mp4
-Frigate streams, which has no length and no byte ranges. The HLS files are served
-from `/m/vod/<clip>/<exp>/<sig>/<file>`, with the signature in the path rather
-than the query, because Frigate's playlists name their files relative to
-themselves and resolving a relative link drops the query. The page's links
-expire with it.
+"View Clip" opens `/m/play/<clip>.html`, a page that plays Frigate's HLS
+(`/vod`) where the browser can, as iOS and Android do, and the mp4 elsewhere:
+Safari can't reliably play Frigate's mp4, which is streamed with no length or
+byte ranges. The HLS files are served from `/m/vod/<clip>/<exp>/<sig>/<file>`,
+signed in the path because the playlists link their files relatively, which
+drops a query string.
 
 Health checks live on **:8080** and are never routed publicly — whatever port
 is public exposes every handler bound to it. Metrics are pushed to OTel, not
@@ -481,12 +475,10 @@ whether the message actually shows up, image and all. `--update-after 10s` then
 sends the end-of-review update to the same message, which is how to check on
 your own devices that each backend edits in place and stays quiet.
 
-`--review <id>` builds both from a real Frigate review instead, with the same
-media selection and signed links a live one gets. `--check-media` then fetches
-every link from the public URL the way a phone would, including the player page
-and the HLS files behind it, reports status, type, size against each limit and
-the clip's codec, and sends nothing. Frigate has to be reachable from where it
-runs:
+`--review <id>` builds both from a real Frigate review, with production media
+and links. `--check-media` instead fetches every link as a phone would, player
+page and HLS included, and reports status, type, size and codec. Frigate must be
+reachable:
 
 ```sh
 kubectl -n frigate port-forward svc/frigate 5000 &

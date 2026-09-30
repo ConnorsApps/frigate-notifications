@@ -110,9 +110,8 @@ func (p *Proxy) serve(w http.ResponseWriter, r *http.Request) {
 	p.forward(w, r, kind, upstream, kind.contentType(), remaining)
 }
 
-// vodFileRe bounds the file under a clip's HLS directory: the playlists,
-// init segment and media segments Frigate's nginx-vod names, and nothing that
-// could leave the directory.
+// vodFileRe admits the playlists and segments nginx-vod names, and nothing
+// that could leave the clip's directory.
 var vodFileRe = regexp.MustCompile(`^[A-Za-z0-9-]{1,64}\.(m3u8|m4s|mp4)$`)
 
 var vodContentTypes = map[string]string{

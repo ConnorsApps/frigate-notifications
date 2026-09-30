@@ -4,8 +4,6 @@ import (
 	"cmp"
 	"context"
 	"fmt"
-	"net/url"
-	"path"
 	"sort"
 	"strings"
 
@@ -73,7 +71,7 @@ func (h *Hass) payload(m Message) map[string]any {
 	// as a few frames, so it gets the clip only when there is no still.
 	if att := cmp.Or(m.Video, m.Image); att != "" {
 		a := map[string]any{"url": att}
-		if ct := hassContentType(att); ct != "" {
+		if ct, ok := hassTypes[linkExt(att)]; ok {
 			a["content-type"] = ct
 		}
 		data["attachment"] = a
@@ -145,28 +143,10 @@ func (h *Hass) payload(m Message) map[string]any {
 	}
 }
 
-// hassContentType is the iOS attachment type for a media link, from its
-// extension. The iOS app maps only these names to a type and passes anything
-// else to iOS verbatim as the type hint, which a MIME type is not. Without
-// one, the push server labels whatever is attached "jpeg" because of the
-// "image" key, so the clip must carry its own.
-func hassContentType(rawURL string) string {
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return ""
-	}
-	switch strings.ToLower(path.Ext(u.Path)) {
-	case ".jpg", ".jpeg":
-		return "jpeg"
-	case ".gif":
-		return "gif"
-	case ".png":
-		return "png"
-	case ".mp4":
-		return "mpeg4"
-	}
-	return ""
-}
+// hassTypes are the iOS app's attachment types by extension. It passes any
+// other content-type, a MIME type included, to iOS as the type hint, and the
+// push server types an attachment "jpeg" when "image" is set and it has none.
+var hassTypes = map[string]string{".jpg": "jpeg", ".jpeg": "jpeg", ".gif": "gif", ".png": "png", ".mp4": "mpeg4"}
 
 // hassSubtitle is the iOS line under the title: severity, zones.
 func hassSubtitle(m Message) string {

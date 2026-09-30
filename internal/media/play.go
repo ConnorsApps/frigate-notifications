@@ -7,10 +7,9 @@ import (
 	"time"
 )
 
-// playPage is what the "View Clip" link opens. Safari can't reliably play the
-// mp4 Frigate streams (fragmented, no length, no byte ranges), so the page
-// offers Frigate's HLS first, which iOS and Android play natively, and falls
-// back to the mp4 where HLS isn't supported (desktop Chrome and Firefox).
+// playPage is what "View Clip" opens. Safari can't reliably play the mp4
+// Frigate streams (fragmented, no length, no byte ranges), so it offers HLS
+// first, which iOS and Android play natively, then the mp4 for the rest.
 var playPage = template.Must(template.New("play").Parse(`<!doctype html>
 <html lang="en">
 <meta charset="utf-8">
@@ -45,8 +44,6 @@ func (p *Proxy) servePlay(w http.ResponseWriter, r *http.Request, clipID, expRaw
 	h.Set("Referrer-Policy", "no-referrer")
 	h.Set("X-Content-Type-Options", "nosniff")
 	h.Set("Cache-Control", "private, max-age="+strconv.Itoa(int(remaining.Seconds())))
-
-	w.WriteHeader(http.StatusOK)
 	if r.Method == http.MethodHead {
 		return
 	}

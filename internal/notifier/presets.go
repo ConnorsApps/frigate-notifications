@@ -55,11 +55,10 @@ func (n *Notifier) check(ctx context.Context, cand candidate) error {
 	return err
 }
 
-// Content builds the notification rule would send for review at phase, for
-// tools that send outside the rule pipeline (cmd/notify-test).
+// Content is the notification rule would send for review at phase, for
+// cmd/notify-test. It needs only the config, signer and prober.
 func (n *Notifier) Content(ctx context.Context, review frigate.ReviewPayload, phase rules.Phase, rule config.Rule, tag string) sender.Message {
-	eventID := review.PrimaryEventID()
-	return n.buildContent(ctx, review, rule, phase, tag, eventID, n.cachedDescription(ctx, eventID))
+	return n.buildContent(ctx, review, rule, phase, tag, review.PrimaryEventID(), "")
 }
 
 // buildContent assembles a review's notification: the best still that fits,
@@ -127,9 +126,8 @@ func (n *Notifier) buildContent(
 		if selected == "none" {
 			selected = string(cand.kind)
 		}
-		// Every candidate is kept: chat backends can't play the clip and
-		// Android shows only frames of it, so they need the best still, and
-		// single-frame backends want the snapshot even when there is a GIF.
+		// Keep going after the clip and the GIF: chat backends and Android
+		// need a still, and single-frame backends want the snapshot.
 		switch {
 		case isClip:
 			c.Video = url

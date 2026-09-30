@@ -28,9 +28,9 @@ func main() {
 	critical := flag.Bool("critical", false, "send the critical form of the notification (hass: max volume, bypasses Do Not Disturb / silent mode / most Focus modes)")
 	image := flag.String("image", "", "attach this image URL (JPEG/GIF/PNG, ≤10 MB)")
 	video := flag.String("video", "", "attach this video URL (MP4, ≤50 MB); backends that can't play video link it instead")
-	review := flag.String("review", "", "build the notification from this Frigate review id instead, with the media and signed links a real one gets; needs media.frigateURL reachable, e.g. MEDIA_FRIGATE_URL=http://localhost:5000 over a port-forward")
-	preset := flag.String("preset", "auto", "with --review: the preset to build with (auto, text, liveview)")
-	checkMedia := flag.Bool("check-media", false, "with --review: fetch every media link the way a phone would, report status, type, size and codec, and send nothing")
+	review := flag.String("review", "", "build the notifications from this Frigate review id, with production media and links; needs media.frigateURL reachable (e.g. MEDIA_FRIGATE_URL=http://localhost:5000 over a port-forward)")
+	preset := flag.String("preset", "auto", "with --review: auto, text, or liveview")
+	checkMedia := flag.Bool("check-media", false, "with --review: fetch every media link as a phone would and report on it; sends nothing")
 	tag := flag.String("tag", "notify-test", "notification tag/group; sending again with the same tag updates the notification in place where the backend supports it")
 	updateAfter := flag.Duration("update-after", 0, "after sending, wait this long and send the end-of-review update (clip ready, GenAI text) to the same message, as a real review does; shows whether each backend edits in place and stays quiet")
 	list := flag.Bool("list-services", false, "list notify.* services Home Assistant exposes, then exit")
@@ -54,23 +54,21 @@ func main() {
 		return
 	}
 
-	// first is sent now; update, if --update-after is set, replaces it later.
-	// Without it, whole is the one message with everything on it.
-	var first, update, whole sender.Message
+	if *checkMedia && *review == "" {
+		fail("--check-media needs --review")
+	}
+	// first is sent now and last, the end-of-review form, replaces it after
+	// --update-after; without it, last is sent alone.
+	var first, last sender.Message
 	if *review != "" {
 		var err error
-		first, update, err = reviewMessages(ctx, cfg, hassClient, *review, config.Preset(*preset), *tag)
-		if err != nil {
+		if first, last, err = reviewMessages(ctx, cfg, *review, config.Preset(*preset), *tag); err != nil {
 			fail("%v", err)
 		}
-		whole = update
 		if *checkMedia {
-			os.Exit(check(ctx, whole))
+			os.Exit(check(last))
 		}
 	} else {
-		if *checkMedia {
-			fail("--check-media needs --review")
-		}
 		first = sender.Message{
 			Camera:   "notify_test",
 			Title:    *title,
@@ -86,20 +84,16 @@ func main() {
 			Snapshot: *image,
 			ClickURL: cfg.DashboardURL,
 		}
-		whole = first
-		whole.Video, whole.ClipURL = *video, *video
-
-		update = first
-		update.Stage = sender.StageEnded
-		update.Detail = "Test update: the review has ended and the clip is ready."
-		update.Body = update.Headline + "\n" + update.Detail
-		update.Video, update.ClipURL = *video, *video
+		last = first
+		last.Stage, last.Detail = sender.StageEnded, "The review has ended and the clip is ready."
+		last.Body = last.Headline + "\n" + last.Detail
+		last.Video, last.ClipURL = *video, *video
 	}
 	if *updateAfter == 0 {
-		first = whole
+		first = last
 	}
-	first.Critical, update.Critical = *critical, *critical
-	update.Update = true
+	first.Critical, last.Critical = *critical, *critical
+	last.Update = true
 
 	r, ok := cfg.Recipients[*recipient]
 	if !ok {
@@ -150,12 +144,12 @@ func main() {
 		fmt.Printf("waiting %s, then sending the update\n", *updateAfter)
 		time.Sleep(*updateAfter)
 
-		if update.End.IsZero() {
-			update.End = time.Now()
+		if last.End.IsZero() {
+			last.End = time.Now()
 		}
 		for _, d := range sent {
 			fmt.Printf("updating %s\n", d.target)
-			if _, err := d.s.Send(ctx, d.target, update, d.ref); err != nil {
+			if _, err := d.s.Send(ctx, d.target, last, d.ref); err != nil {
 				fmt.Fprintf(os.Stderr, "notify-test: %s: update failed: %v\n", d.target, err)
 				failed++
 			}

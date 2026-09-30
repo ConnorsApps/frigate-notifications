@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"bytes"
-	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -22,7 +21,7 @@ const ntfyAutoDownload int64 = 1 << 20
 // check fetches every link in m from the public base URL, as a phone or a
 // chat service would, and reports what each returned. It returns the exit
 // status: 1 if any link failed.
-func check(ctx context.Context, m sender.Message) int {
+func check(m sender.Message) int {
 	client := &http.Client{Timeout: 60 * time.Second}
 	failed := false
 	report := func(what, link string, limit int64, note string) []byte {
@@ -30,7 +29,7 @@ func check(ctx context.Context, m sender.Message) int {
 			fmt.Printf("%-9s (none)\n", what)
 			return nil
 		}
-		r := fetch(ctx, client, link)
+		r := fetch(client, link)
 		ok := r.err == nil && r.status == http.StatusOK
 		failed = failed || !ok
 		line := fmt.Sprintf("%-9s %s", what, r)
@@ -48,7 +47,7 @@ func check(ctx context.Context, m sender.Message) int {
 		}
 		fmt.Println(line)
 		fmt.Printf("          %s\n", link)
-		return r.body
+		return r.head
 	}
 
 	report("still", m.Image, media.MaxImageBytes, "iOS won't attach it")
@@ -71,13 +70,13 @@ func check(ctx context.Context, m sender.Message) int {
 	return 0
 }
 
-// fetched is one link's outcome. body is kept for pages and playlists only;
-// head is the start of anything else, enough to find a video codec.
+// fetched is one link's outcome. head is its first 64 KB: all of a page or
+// playlist, and enough of an mp4 to find its codec.
 type fetched struct {
 	status      int
 	contentType string
 	size        int64
-	head, body  []byte
+	head        []byte
 	err         error
 }
 
@@ -88,31 +87,20 @@ func (f fetched) String() string {
 	return fmt.Sprintf("%d %s %s", f.status, f.contentType, humanBytes(f.size))
 }
 
-func fetch(ctx context.Context, client *http.Client, link string) fetched {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, link, nil)
-	if err != nil {
-		return fetched{err: err}
-	}
-	resp, err := client.Do(req)
+func fetch(client *http.Client, link string) fetched {
+	resp, err := client.Get(link)
 	if err != nil {
 		return fetched{err: err}
 	}
 	defer resp.Body.Close()
 
 	f := fetched{status: resp.StatusCode, contentType: resp.Header.Get("Content-Type")}
-	const headSize = 64 << 10
-	var buf bytes.Buffer
-	n, err := io.Copy(&buf, io.LimitReader(resp.Body, headSize))
-	if err == nil {
+	f.head, f.err = io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+	if f.err == nil {
 		// The rest is only counted: clips are streamed with no length.
-		var rest int64
-		rest, err = io.Copy(io.Discard, resp.Body)
-		n += rest
+		f.size, f.err = io.Copy(io.Discard, resp.Body)
 	}
-	f.size, f.head, f.err = n, buf.Bytes(), err
-	if strings.HasPrefix(f.contentType, "text/html") || strings.Contains(f.contentType, "mpegurl") {
-		f.body = f.head
-	}
+	f.size += int64(len(f.head))
 	return f
 }
 

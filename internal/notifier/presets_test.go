@@ -74,6 +74,7 @@ func (f *fakeProber) Check(_ context.Context, kind media.Kind, _ string, _ int64
 
 func TestAutoMediaSelection(t *testing.T) {
 	errGone := errors.New("upstream 404")
+	all := []media.Kind{media.KindClip, media.KindPreview, media.KindSnapshot}
 
 	tests := []struct {
 		name      string
@@ -89,30 +90,30 @@ func TestAutoMediaSelection(t *testing.T) {
 		{
 			name: "end resolves the clip, the gif, and the snapshot", phase: rules.PhaseEnd,
 			wantVideo: "/m/clip/", wantImage: "/m/preview/", wantSnap: true, wantClip: true,
-			wantAsked: []media.Kind{media.KindClip, media.KindPreview, media.KindSnapshot},
+			wantAsked: all,
 		},
 		{
 			name: "clip too big for iOS falls back to the gif but stays playable", phase: rules.PhaseEnd,
 			errs:      map[media.Kind]error{media.KindClip: media.ErrTooLarge},
 			wantImage: "/m/preview/", wantSnap: true, wantClip: true,
-			wantAsked: []media.Kind{media.KindClip, media.KindPreview, media.KindSnapshot},
+			wantAsked: all,
 		},
 		{
 			name: "missing clip falls back to the gif and is not linked", phase: rules.PhaseEnd,
 			errs:      map[media.Kind]error{media.KindClip: errGone},
 			wantImage: "/m/preview/", wantSnap: true,
-			wantAsked: []media.Kind{media.KindClip, media.KindPreview, media.KindSnapshot},
+			wantAsked: all,
 		},
 		{
 			name: "no clip or gif falls back to the snapshot", phase: rules.PhaseEnd,
 			errs:      map[media.Kind]error{media.KindClip: errGone, media.KindPreview: errGone},
 			wantImage: "/m/snapshot/", wantSnap: true,
-			wantAsked: []media.Kind{media.KindClip, media.KindPreview, media.KindSnapshot},
+			wantAsked: all,
 		},
 		{
 			name: "nothing available is text", phase: rules.PhaseEnd,
 			errs:      map[media.Kind]error{media.KindClip: errGone, media.KindPreview: errGone, media.KindSnapshot: errGone},
-			wantAsked: []media.Kind{media.KindClip, media.KindPreview, media.KindSnapshot},
+			wantAsked: all,
 		},
 		{
 			name: "new sends the snapshot and never asks for a clip", phase: rules.PhaseNew,
@@ -127,7 +128,7 @@ func TestAutoMediaSelection(t *testing.T) {
 		{
 			name: "liveview picks media like auto", phase: rules.PhaseEnd, preset: config.PresetLiveView,
 			wantVideo: "/m/clip/", wantImage: "/m/preview/", wantSnap: true, wantClip: true,
-			wantAsked: []media.Kind{media.KindClip, media.KindPreview, media.KindSnapshot},
+			wantAsked: all,
 		},
 	}
 

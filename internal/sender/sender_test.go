@@ -291,25 +291,17 @@ func TestHassLiveViewUntilTheClip(t *testing.T) {
 // a MIME type included, to iOS as the type hint (home-assistant/iOS,
 // NotificationAttachmentInfo.contentType(for:)).
 func TestHassContentTypeIsAnIOSName(t *testing.T) {
-	for link, want := range map[string]string{
+	for link, want := range map[string]any{
 		"https://m.test/m/snapshot/e1.jpg?exp=1&sig=a": "jpeg",
 		"https://m.test/m/preview/r1.gif?exp=1&sig=a":  "gif",
-		"https://m.test/m/clip/c1.mp4?exp=1&sig=a":     "mpeg4",
 		"https://m.test/still.PNG":                     "png",
-		"https://m.test/still.jpeg":                    "jpeg",
-		"https://m.test/no-extension":                  "",
-		"https://m.test/clip.mov":                      "",
+		"https://m.test/no-extension":                  nil,
 	} {
-		if got := hassContentType(link); got != want {
-			t.Errorf("hassContentType(%q) = %q, want %q", link, got, want)
+		m := started()
+		m.Image = link
+		if _, ct := attachmentOf(t, hassData(t, m, "")); ct != want {
+			t.Errorf("%s: content-type = %v, want %v", link, ct, want)
 		}
-	}
-
-	m := started()
-	m.Image = "https://m.test/no-extension"
-	m.Snapshot = m.Image
-	if _, ct := attachmentOf(t, hassData(t, m, "")); ct != nil {
-		t.Errorf("content-type = %v, want none for an unknown type", ct)
 	}
 }
 

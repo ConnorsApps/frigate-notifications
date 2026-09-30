@@ -1,10 +1,9 @@
 package main
 
 import (
-	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
-	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -37,45 +36,37 @@ func TestVideoCodec(t *testing.T) {
 // resolving the playlists' relative links the way a player does. That only
 // works because the vod signature is in the path.
 func TestCheckFollowsThePlayerThroughHLS(t *testing.T) {
-	var mu sync.Mutex
-	var seen []string
+	const vod = "/vod/front_porch/start/1756999998/end/1757000015/"
+	files := map[string][2]string{ // path: content type, body
+		"/api/events/evt1/snapshot.jpg":                             {"image/jpeg", "\xff\xd8jpeg"},
+		"/api/front_porch/start/1756999998/end/1757000015/clip.mp4": {"video/mp4", mp4Head("avc1")},
+		vod + "master.m3u8":                                         {"application/vnd.apple.mpegurl", "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\nindex-v1.m3u8\n"},
+		vod + "index-v1.m3u8":                                       {"application/vnd.apple.mpegurl", "#EXTM3U\n#EXT-X-MAP:URI=\"init-v1.mp4\"\n#EXTINF:10,\nseg-1-v1.m4s\n"},
+		vod + "init-v1.mp4":                                         {"video/mp4", mp4Head("avc1")},
+		vod + "seg-1-v1.m4s":                                        {"video/mp4", "moof"},
+	}
+	var served sync.Map
 	frigate := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mu.Lock()
-		seen = append(seen, r.URL.Path)
-		mu.Unlock()
-		const vod = "/vod/front_porch/start/1756999998/end/1757000015/"
-		switch r.URL.Path {
-		case "/api/events/evt1/snapshot.jpg":
-			w.Header().Set("Content-Type", "image/jpeg")
-			w.Write([]byte("\xff\xd8jpeg"))
-		case "/api/front_porch/start/1756999998/end/1757000015/clip.mp4", vod + "init-v1.mp4":
-			w.Header().Set("Content-Type", "video/mp4")
-			w.Write([]byte(mp4Head("avc1")))
-		case vod + "master.m3u8":
-			w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
-			w.Write([]byte("#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\nindex-v1.m3u8\n"))
-		case vod + "index-v1.m3u8":
-			w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
-			w.Write([]byte("#EXTM3U\n#EXT-X-MAP:URI=\"init-v1.mp4\"\n#EXTINF:10,\nseg-1-v1.m4s\n"))
-		case vod + "seg-1-v1.m4s":
-			w.Header().Set("Content-Type", "video/mp4")
-			w.Write([]byte("moof"))
-		default:
+		f, ok := files[r.URL.Path]
+		if !ok {
 			http.NotFound(w, r)
+			return
 		}
+		served.Store(r.URL.Path, true)
+		w.Header().Set("Content-Type", f[0])
+		io.WriteString(w, f[1])
 	}))
 	t.Cleanup(frigate.Close)
 
 	public := httptest.NewUnstartedServer(nil)
-	public.Start()
-	t.Cleanup(public.Close)
-	signer, err := media.NewSigner("0123456789abcdef0123456789abcdef", public.URL, time.Hour)
+	signer, err := media.NewSigner("0123456789abcdef0123456789abcdef", "http://"+public.Listener.Addr().String(), time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
 	public.Config.Handler = media.NewProxy(signer, frigate.URL).Handler()
+	public.Start()
+	t.Cleanup(public.Close)
 
-	clipID := media.ClipID("front_porch", 1757000000.5, 1757000012.9)
 	sign := func(kind media.Kind, id string) string {
 		link, err := signer.URL(kind, id)
 		if err != nil {
@@ -83,6 +74,7 @@ func TestCheckFollowsThePlayerThroughHLS(t *testing.T) {
 		}
 		return link
 	}
+	clipID := media.ClipID("front_porch", 1757000000.5, 1757000012.9)
 	m := sender.Message{
 		Image:    sign(media.KindSnapshot, "evt1"),
 		Snapshot: sign(media.KindSnapshot, "evt1"),
@@ -90,13 +82,12 @@ func TestCheckFollowsThePlayerThroughHLS(t *testing.T) {
 		ClipURL:  sign(media.KindPlay, clipID),
 	}
 
-	if status := check(context.Background(), m); status != 0 {
+	if status := check(m); status != 0 {
 		t.Errorf("check = %d, want every link to answer", status)
 	}
-	const vod = "/vod/front_porch/start/1756999998/end/1757000015/"
-	for _, want := range []string{vod + "master.m3u8", vod + "index-v1.m3u8", vod + "init-v1.mp4", vod + "seg-1-v1.m4s"} {
-		if !slices.Contains(seen, want) {
-			t.Errorf("Frigate never saw %s; saw %v", want, seen)
+	for path := range files {
+		if _, ok := served.Load(path); !ok {
+			t.Errorf("Frigate never served %s", path)
 		}
 	}
 }
