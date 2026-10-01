@@ -1,5 +1,6 @@
 # Example: frigate-notify with Valkey (state) and PostgreSQL (audit log).
-# Assumes Frigate, MQTT and Home Assistant already exist; see README.
+# Assumes Frigate, MQTT and Home Assistant already exist; see
+# https://connorsapps.github.io/frigate-notifications/docker-compose/
 services:
   frigate-notify:
     image: ghcr.io/connorsapps/frigate-notifications:latest
