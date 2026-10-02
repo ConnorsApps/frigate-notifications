@@ -6,16 +6,14 @@ checkout of this repo, with Go installed.
 
 ## Sending a test notification
 
-`cmd/notify-test` sends one real notification to a recipient's targets, or to one
-backend with `--target slack|ntfy|discord|hass`. It answers what replay can't:
-whether the message actually shows up, image and all. `--update-after 10s` then
-sends the end-of-review update to the same message, which is how to check on
-your own devices that each backend edits in place and stays quiet.
+`cmd/notify-test` sends one real notification to a recipient's targets, or to
+one backend with `--target slack|ntfy|discord|hass`, to check that it shows up,
+image and all. `--update-after 10s` then sends the end-of-review update to the
+same message, to check that each backend edits in place quietly.
 
-`--review <id>` builds both from a real Frigate review, with production media
-and links. `--check-media` instead fetches every link as a phone would, player
-page and HLS included, and reports status, type, size and codec. Frigate must be
-reachable:
+`--review <id>` builds both from a real Frigate review, with its real media.
+`--check-media` instead fetches every link as a phone would, player page and HLS
+included, and reports status, type, size and codec. Frigate must be reachable:
 
 ```sh
 kubectl -n frigate port-forward svc/frigate 5000 &
@@ -27,8 +25,8 @@ What each device should show:
 
 | device | first push | end-of-review update |
 |---|---|---|
-| iPhone (Home Assistant) | snapshot thumbnail; `liveview` expands to the live camera | replaces it silently; expanding plays the clip; "View Clip" plays in Safari |
-| Android 14+ (Home Assistant) | snapshot as a big picture | replaces it silently; the gif animates when expanded |
+| iPhone (Companion app) | snapshot thumbnail; `liveview` expands to the live camera | replaces it silently; expanding plays the clip; "View Clip" plays in Safari |
+| Android 14+ (Companion app) | snapshot as a big picture | replaces it silently; the gif animates when expanded |
 | Android 13 and older | snapshot | the gif, as a still |
 | ntfy Android / iOS | snapshot | replaces it quietly / a second, passive notification |
 | Slack, Discord | snapshot | the message is edited to the animated gif; "View clip" plays |
@@ -39,9 +37,8 @@ update to one already swiped away alerts again.
 ## Replaying a decision
 
 `cmd/replay` answers "why did (or didn't) this fire, and what would it have
-sent?" against a captured review, at an arbitrary wall clock, with no MQTT,
-Home Assistant, or Valkey involved. It prints the exact payload each of a
-recipient's targets would receive:
+sent?" for a captured review at any wall clock, with no MQTT, Home Assistant, or
+Valkey. It prints the exact payload each of a recipient's targets would get:
 
 ```sh
 go run ./cmd/replay --at 03:14 \
@@ -49,46 +46,35 @@ go run ./cmd/replay --at 03:14 \
   internal/frigate/testdata/review-new.json
 ```
 
-Several files play in order as one review's life, sharing state, so a `new`,
-`end` and `genai` message show how each backend's notification is created and
-then updated. `review-genai.json` is synthetic (modelled on Frigate's source,
-not captured):
+Several files play in order as one review's life, sharing state, to show how
+each backend's notification is created and then updated (`review-genai.json` is
+synthetic):
 
 ```sh
 go run ./cmd/replay internal/frigate/testdata/review-{new,end,genai}.json
 ```
 
-Without `--sun`, solar windows fail open and match everything, which would
-quietly make a night rule untestable. Every rule that was rejected reports
-which condition rejected it.
+Pass `--sun` to test solar windows: without it they fail open and match
+everything. Each rejected rule reports the condition that rejected it.
 
 ## Reviewing what actually happened
 
-`cmd/replay` is hypothetical; `cmd/events` summarizes real reviews and
-notifications from the audit store (`internal/eventstore`, best-effort, see
-[State](how-it-works.md#state)) over a recent window: counts by camera/rule/recipient, delivery
-success per recipient, review-to-push latency, and the last N notifications with
-their rendered message:
+`cmd/events` summarizes real reviews and notifications from the
+[audit log](how-it-works.md#state) over a recent window: counts by
+camera/rule/recipient, delivery success per recipient, review-to-push latency,
+and the last N notifications with their rendered message:
 
 ```sh
 ./scripts/events.sh --since 48h
 ./scripts/events.sh --recipient bob   # e.g. checking a delivery outage
 ```
 
-`scripts/db-uri.sh` fills in `DB_URL` from the running config Secret, so neither
-script needs a local `config.yaml`. `scripts/mongosh.sh` opens an interactive
-shell against a Mongo database (use `psql` for Postgres).
-`scripts/notif-log.sh` pretty-prints the request body of every *failed* Home
-Assistant call from the pod's logs (the only case `hass.go` logs the payload);
-it doesn't touch the database, so it works during an outage even when the audit
-store is empty.
+The `scripts/` helpers run `kubectl` against namespace `frigate` (override with
+`NS`). `db-uri.sh` fills in `DB_URL` from the running config Secret, so no local
+`config.yaml` is needed. `mongosh.sh` opens a shell on a Mongo database
+(`MONGO_NS`, `MONGO_POD`; use `psql` for Postgres). `notif-log.sh`
+pretty-prints the request body of every *failed* Home Assistant call from the
+pod's logs; it doesn't need the database, so it works during an outage.
 
-Suppressed notifications (cooldown, active-hours, rate-cap) aren't persisted;
+Suppressed notifications (cooldown, active hours, rate cap) aren't persisted;
 they're metrics only (`frigate_notify_suppressed_total`).
-
-## Ops scripts
-
-`scripts/` holds Kubernetes ops helpers (`kubectl`/`mongosh` against a running
-deployment). They default to namespace `frigate`; override with `NS`,
-`MONGO_NS`, and `MONGO_POD` (the last two only apply to `mongosh.sh`, which
-needs a MongoDB `db.url`).

@@ -7,7 +7,6 @@ site_description: >-
   and Discord.
 repo_name: ConnorsApps/frigate-notifications
 repo_url: https://github.com/ConnorsApps/frigate-notifications
-edit_uri: edit/main/docs/
 
 theme:
   name: material
@@ -17,10 +16,6 @@ theme:
     - navigation.footer
     - search.highlight
   palette:
-    - media: "(prefers-color-scheme)"
-      toggle:
-        icon: material/brightness-auto
-        name: Switch to light mode
     - media: "(prefers-color-scheme: light)"
       scheme: default
       toggle:
@@ -30,7 +25,7 @@ theme:
       scheme: slate
       toggle:
         icon: material/brightness-4
-        name: Switch to system preference
+        name: Switch to light mode
 
 markdown_extensions:
   - attr_list

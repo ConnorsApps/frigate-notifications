@@ -6,27 +6,22 @@ the Home Assistant Companion app, Slack, ntfy, and Discord.
 
 ## Why use it
 
-- **Wake me for a stranger, not the family.** A person after dusk who isn't a
-  recognized face, with the alarm armed, becomes a critical alert that gets
-  through Do Not Disturb on the Companion app.
-- **One set of rules for the whole house.** Rules name people, and each person
-  keeps their own awake hours, critical opt-in, and hourly cap.
-- **Everyone on the app they already use.** One person can get the Companion
-  app and a Slack DM, another just ntfy or Discord.
-- **A snapshot now, the clip when it's over.** When the event ends, the same
-  notification quietly updates with the clip, an animated preview, and
-  Frigate's GenAI summary.
-- **Pictures that load anywhere.** Media goes through signed, expiring links,
-  so phones away from home need no VPN or Frigate login.
-- **No alert storms.** Cooldowns, plus a single digest for anything past a
-  person's hourly cap.
-- **"Why did that fire?"** Replay a Frigate review against your rules, or send
-  a real test notification to your own phone.
+- **Wake me for a stranger, not the family.** A person after dusk, no known
+  face, alarm armed: a critical alert through Do Not Disturb (Companion app).
+- **One rule list for everyone.** Each person picks their apps and keeps their
+  own awake hours, critical opt-in, and hourly cap.
+- **Snapshot now, clip when it ends.** The same notification quietly updates
+  with the clip and Frigate's GenAI summary.
+- **Pictures that load anywhere.** Signed, expiring links: no VPN or Frigate
+  login.
+- **No alert storms.** Cooldowns, and a digest past each person's hourly cap.
+- **"Why did that fire?"** Replay a review against your rules, or send yourself
+  a test.
 
 ## What a rule looks like
 
 ```yaml
-rules:                                 # the first match wins
+rules:                                 # first match wins
   - name: night-person
     when:
       hours: { from: dusk+30m, to: dawn-30m }
@@ -38,23 +33,22 @@ rules:                                 # the first match wins
     critical: true
 ```
 
-Coming from [SgtBatten's Frigate blueprint](https://github.com/SgtBatten/HA_blueprints)?
-It takes an automation per person; here one rule list covers everyone.
+Coming from [SgtBatten's blueprint](https://github.com/SgtBatten/HA_blueprints)?
+One rule list replaces its automation per person.
 <!-- --8<-- [end:pitch] -->
 
 ## Install
 
 <!-- --8<-- [start:requirements] -->
-You need Frigate publishing to an MQTT broker, and Home Assistant, even if you
-only notify Slack or Discord: rules read its state (the sun, your alarm). For
-pictures on phones away from home, put a public HTTPS URL (a reverse proxy or
-tunnel) in front of port 8081.
+Needs Frigate on MQTT, and Home Assistant: rules read its state, even if you
+only notify Slack. For pictures away from home, serve port 8081 at a public
+HTTPS URL.
 
-| Method | Pick it if | Comes with |
+| | Runs on | Includes |
 |---|---|---|
-| Home Assistant add-on | You run Home Assistant OS or Supervised | Home Assistant, Mosquitto, and a signing key, set up for you |
-| Docker Compose | You have any Docker host | Valkey and PostgreSQL |
-| Kubernetes (Helm) | You run a cluster | Optional Valkey, PostgreSQL, or MongoDB; a Gateway API route; OpenTelemetry |
+| **Home Assistant add-on** | Home Assistant OS or Supervised | Home Assistant and Mosquitto connected, signing key generated |
+| **Docker Compose** | Any Docker host | Valkey, PostgreSQL |
+| **Kubernetes (Helm)** | Any cluster | Optional Valkey, PostgreSQL or MongoDB; Gateway API route; OpenTelemetry |
 <!-- --8<-- [end:requirements] -->
 
 ### Home Assistant add-on
@@ -62,10 +56,10 @@ tunnel) in front of port 8081.
 <!-- --8<-- [start:ha] -->
 [![Add the repository to your Home Assistant](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2FConnorsApps%2Fhome-assistant-addons)
 
-Add the repository, install **Frigate Notifications**, and start it once: it
-writes an example `config.yaml` to
-`/addon_configs/38cd5911_frigate_notifications/` and stops. Fill in your
-recipients, cameras, and rules, then start it again.
+1. Add the repository and install **Frigate Notifications**.
+2. Start it once to generate
+   `/addon_configs/38cd5911_frigate_notifications/config.yaml`.
+3. Fill in recipients, cameras, and rules, then start it again.
 <!-- --8<-- [end:ha] -->
 
 [Add-on guide](https://github.com/ConnorsApps/home-assistant-addons/blob/main/frigate-notifications/DOCS.md)
@@ -76,8 +70,7 @@ recipients, cameras, and rules, then start it again.
 ```sh
 url=https://raw.githubusercontent.com/ConnorsApps/frigate-notifications/main
 curl -O "$url/docker-compose.yml"
-curl -o config.yaml "$url/config-example.yaml"
-# fill in config.yaml: Home Assistant, MQTT, media, recipients, cameras, rules
+curl -o config.yaml "$url/config-example.yaml"   # then edit it
 docker compose up -d
 ```
 <!-- --8<-- [end:compose] -->
@@ -90,7 +83,7 @@ docker compose up -d
 ```sh
 helm upgrade --install frigate-notifications \
   oci://ghcr.io/connorsapps/charts/frigate-notifications \
-  --values values.yaml   # your config.yaml under the `config` key
+  --values values.yaml   # config.yaml under `config:`
 ```
 <!-- --8<-- [end:helm] -->
 
@@ -98,7 +91,4 @@ helm upgrade --install frigate-notifications \
 
 ## Documentation
 
-The full docs live at
-**[connorsapps.github.io/frigate-notifications](https://connorsapps.github.io/frigate-notifications/)**:
-configuration, notification backends, how it works, troubleshooting, and
-development.
+[connorsapps.github.io/frigate-notifications](https://connorsapps.github.io/frigate-notifications/)

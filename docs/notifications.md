@@ -1,14 +1,13 @@
 # Notifications
 
-Which apps a notification reaches, what it carries, and how it changes over
-a review's life.
+Which apps a notification reaches, what it carries, and how it changes over a
+review's life.
 
 ## Backends
 
-A recipient is a person with a list of `targets`; every target of a recipient
-gets each notification. Targets are delivered concurrently, each with its own
-15s timeout, so a hung Slack call never delays a Home Assistant push — or
-anyone else's.
+Each recipient has a list of `targets`, and every target gets each
+notification. Targets are delivered concurrently with a 15s timeout each, so a
+hung Slack call never delays anything else.
 
 ```yaml
 recipients:
@@ -27,88 +26,75 @@ recipients:
 | `slack` | image block | link in the context line | 🚨 in the header | `chat.update` edits the message |
 | `discord` | embed image | link in the embed | red embed, 🚨 in the headline | edits the message |
 
-The layout follows the event. Every alert carries the camera, what was detected,
-where (zones), when, and severity; an ended review adds how long it lasted and
-the clip; a GenAI summary replaces the headline and adds its sentence. Each
-backend lays that out for itself:
+Every alert carries the camera, what was detected, zones, time, and severity;
+an ended review adds its duration and the clip, and a GenAI summary replaces
+the headline and adds its sentence. Per backend:
 
 - **`hass`**: grouped per camera, "Alert · Zone" as the iOS subtitle, the review
-  start as the Android timestamp. Alerts are time-sensitive on iOS so they get
-  through a Focus mode; detections are not. A digest uses its own low-importance
-  channel. Android shows no picture when the Companion app's only Home Assistant URL is
-  `http://` and the phone is away from home, unless it allows insecure
-  connections.
+  start as the Android timestamp. Alerts are time-sensitive on iOS, so they get
+  through a Focus mode; detections aren't. Digests use a low-importance
+  channel. Android shows no picture away from home if the Companion app's only
+  Home Assistant URL is `http://`, unless it allows insecure connections.
 - **`ntfy`**: an emoji per object (`walking`, `dog`, `cat`, `car`, `package`,
-  else `eyes`; plus 🚨 for critical), priority 4 for an alert, 3 for a detection, 5 for critical, 2
-  for anything quiet. Message text is plain: markdown is not rendered on iOS.
-- **`slack`**: camera as the header, the headline in bold, then the picture and
-  a context line with the time (shown in the viewer's timezone), duration,
-  zones and links. The push preview is "Camera: headline".
-- **`discord`**: the headline is the message text, because a phone's push preview
-  shows the text and not the embed; the embed carries the detail, the picture,
-  a footer (zones, severity, duration) and the start time. A digest is posted
-  without a notification.
+  else `eyes`; 🚨 when critical); priority 5 critical, 4 alert, 3 detection, 2
+  anything quiet. Plain text: iOS doesn't render markdown.
+- **`slack`**: the camera as header, the headline in bold, then the picture and
+  a context line with time (in the viewer's timezone), duration, zones and
+  links. The push preview is "Camera: headline".
+- **`discord`**: the headline is the message text, since push previews show the
+  text, not the embed; the embed carries the detail, picture, a footer (zones,
+  severity, duration) and the start time. Digests post without a notification.
 
-"Critical" only bypasses Do Not Disturb on `hass`. Elsewhere it is styling.
-`allowCritical` still decides whether a recipient gets the critical form.
-
-`hass:` stays required even for chat-only setups, because rule conditions
-(`entityState`, solar hours) read Home Assistant state.
+Only `hass` bypasses Do Not Disturb; elsewhere "critical" is styling.
+`allowCritical` still decides who gets the critical form. `hass:` is required
+even for chat-only setups: rule conditions (`entityState`, solar hours) read
+Home Assistant state.
 
 **Slack.** Create an app with a bot token (`chat:write`) and set
 `slack.botToken`. Invite the bot to each channel, or grant `chat:write.public`,
-or posts fail with `not_in_channel`. A user id opens a DM. It has to be a bot
-rather than an incoming webhook, because only `chat.update` can edit a message.
-Slack downloads image URLs itself when the message is posted; if it can't, the
-message is re-posted without the image rather than lost.
+or posts fail with `not_in_channel`. A user id opens a DM. It must be a bot,
+not an incoming webhook: only bots can edit messages.
 
-**ntfy.** Set `ntfy.url` (and `ntfy.token` if the server needs one). Updating a
-notification in place needs **ntfy server ≥ 2.16** and Android app ≥ 1.22.2;
-on an older server each update arrives as a second notification. The iOS app
-does not replace: an update arrives as a second, passive notification. It
-attaches the snapshot, not the gif: Android auto-downloads only up to 1 MB by
-default, and a long review's gif is bigger. A self-hosted server needs
-`upstream-base-url: https://ntfy.sh` for instant delivery to iOS. Authenticate with an access token (`tk_...`, sent as a Bearer
-token) for a write-only user on the topic, with `auth-default-access: deny-all`
-on the server. The sequence id is derived from the review id with anything
-outside `A-Z a-z 0-9 - _` replaced, because ntfy rejects the "." in Frigate's
-ids.
+**ntfy.** Set `ntfy.url`, plus `ntfy.token` if the server needs one.
+
+- Updating in place needs **ntfy server ≥ 2.16** and Android app ≥ 1.22.2;
+  older servers send each update as a second notification. The iOS app never
+  replaces: an update arrives as a second, passive notification.
+- It attaches the snapshot, not the gif: Android auto-downloads only up to
+  1 MB by default.
+- A self-hosted server needs `upstream-base-url: https://ntfy.sh` for instant
+  delivery to iOS.
+- Authenticate with an access token (`tk_...`) for a write-only user on the
+  topic, with `auth-default-access: deny-all` on the server.
 
 **Discord.** The webhook URL is the whole credential: treat it like a token. It
-is never logged, traced, or written to the audit log at runtime (only its id is).
+is never logged, traced, or written to the audit log (only its id is).
 
 **Reachability and privacy.** Slack and Discord fetch snapshots from the
-[media proxy](how-it-works.md#media-proxy) themselves, so `media.publicBaseURL` has to be
-reachable from their servers, not just from phones. Both services also cache
-what they fetch, so a snapshot posted to a channel outlives its signed link and
-is visible to everyone in that channel. Point rules at shared channels
-accordingly.
+[media proxy](how-it-works.md#media-proxy) themselves, so
+`media.publicBaseURL` must be reachable from their servers, not just phones.
+Both cache what they fetch: a snapshot posted to a channel outlives its signed
+link and is visible to everyone there.
 
-Text written by the model (GenAI titles, summaries, descriptions) is escaped for
-Slack and Discord markup, formatting marks are defused, and Discord mentions are
-disabled, so a description can't ping a channel or restyle the message.
+GenAI text is escaped for Slack and Discord markup, with Discord mentions
+disabled, so a description can't ping a channel or restyle a message.
 
 ## Media and presets
 
-Media is picked automatically. Each candidate is probed against Frigate
-in-cluster, and the first one that exists and fits wins; if none does, the push
-goes out as text. The clip, the best still (preview gif, else snapshot) and the
-snapshot are resolved independently, and each backend shows what it can: the
-Home Assistant Companion app plays the clip on iOS and shows the still on Android (which
-shows only a few frames of a video), while Slack, Discord, and ntfy can't play a
-clip inline, so they get a still and a "View Clip" link; see
-[Backends](#backends).
+Media is picked automatically: each candidate is probed against Frigate, and
+the first that exists and fits wins; if none does, the push is text. The clip,
+best still (preview gif, else snapshot) and snapshot are resolved
+independently, and each backend shows what it can (see [Backends](#backends)).
 
 | phase | order tried |
 |---|---|
 | `new` | snapshot → text |
 | `end` | clip (≤25 MB), then the first still that fits: review preview gif (≤10 MB) → snapshot; text if neither |
 
-The clip spans the whole review (`/api/<camera>/start/<s>/end/<e>/clip.mp4`, 2s
-before and 3s after), not just its first detection. The clip cap is below iOS's
-50 MB hard limit because the notification extension has ~30 s to download it on
-whatever connection the phone has. A clip too big to attach is still linked from
-"View Clip", which opens a [player page](how-it-works.md#media-proxy), not the mp4.
+The clip spans the whole review, from 2s before to 3s after. Its cap is below
+iOS's 50 MB limit because the notification extension has ~30 s to download it.
+A clip too big to attach is still linked from "View Clip", which opens a
+[player page](how-it-works.md#media-proxy).
 
 H.265 cameras need Frigate's `ffmpeg: {apple_compatibility: true}`, or their
 clips are tagged `hev1`, which iOS won't play (`notify-test --check-media`
@@ -124,40 +110,31 @@ reports the tag).
 
 `frigate_notify_media_selected_total{phase,kind}` counts what each notification
 carried; `kind="none"` means every candidate failed and it fell back to text
-(`off` is a rule using `preset: text`). Check it first when someone
-says the images stopped showing up.
-
-`critical: true` emits both iOS (`push.interruption-level`) and Android
-(`alarm_stream` channel, `ttl`/`priority`) keys in one payload; each platform
-ignores the other's.
+(`off` is `preset: text`). Check it first when images stop showing up.
 
 ## Lifecycle
 
-Frigate reports a review three times, and all three matter, then once more if
-GenAI review summaries are on:
+Frigate reports a review three times, then once more if GenAI review summaries
+are on:
 
 | phase | what happens |
 |---|---|
 | `new` | wait out any `holdoff`, match, check the cooldown, send |
-| `update` | re-match. Frigate escalates a review from `detection` to `alert` mid-life, so a `severity: [alert]` rule must still be able to fire here. Frigate publishes an update on every change, so the MQTT redelivery guard keys on the payload's content: keying on the phase would drop every update after the first, escalation included |
-| `end` | re-match. Same rule, or a higher-priority rule that isn't more critical → refresh the notification in place (same tag) with the clip and any GenAI description. A higher-priority rule that raises the alert to **critical** → a fresh notification under a new tag (`-esc`), because Android's `alert_once` and ntfy's sequence replace are both silent and reusing the tag would make the one message meant to wake someone the one that doesn't. The earlier notification stays |
-| `genai` | Published some time after `end`, once Frigate's GenAI summary (`data.metadata`: `title`, `shortSummary`, `potential_threat_level`) is ready (Frigate ≥ 0.17, `review.genai` on). Not a rule phase: it quietly edits the notification already delivered, with the title as headline and the summary as detail. Threat level 1 prefixes "Needs review:", 2 "Security concern:", as Frigate does; it is shown, never acted on. With no earlier notification it does nothing |
+| `update` | re-match: Frigate can escalate a review from `detection` to `alert` mid-life, so a `severity: [alert]` rule can still fire |
+| `end` | re-match. Same rule, or a higher-priority one that isn't more critical → refresh in place with the clip and any GenAI description. One that raises it to **critical** → a fresh notification (tag `-esc`), since in-place updates are silent; the earlier one stays |
+| `genai` | after `end`, once Frigate's GenAI summary is ready (Frigate ≥ 0.17, `review.genai` on). Not a rule phase: it quietly edits the delivered notification, title as headline and summary as detail, and does nothing if none was sent. Threat level 1 prefixes "Needs review:", 2 "Security concern:"; it's shown, never acted on |
 
-A re-match on a later phase re-pushes **only to raise criticality**. A
-higher-priority rule that merely adds detail (a zone, a sub-label) refreshes the
-notification in place instead of buzzing twice, and a lower-priority match never
-downgrades a critical alert.
+A later phase re-pushes **only to raise criticality**: a higher-priority rule
+that merely adds detail (a zone, a sub-label) refreshes in place, and a
+lower-priority match never downgrades a critical alert.
 
-`holdoff` exists because face recognition is not instant: `sub_labels` is
-usually empty on the `new` payload and fills in moments later, so
-`excludeSubLabels` evaluated immediately would let the rule fire anyway. A
-push can't be recalled, so the decision waits. Rules using sub-labels default
-to 5s. The decision is made on the newest payload seen during the wait, not the
-one that started it, and a review that ends during the wait is decided at once
-on its end payload.
+`holdoff` exists because face recognition lags: `sub_labels` is usually empty
+on the `new` payload, so `excludeSubLabels` checked at once would let the rule
+fire, and a push can't be recalled. Rules using sub-labels default to 5s. The
+decision uses the newest payload seen during the wait; a review that ends
+during it is decided at once.
 
-**Updates are quiet.** The clip becoming ready or a GenAI summary arriving edits
-a notification that already alerted, so it doesn't alert again (mechanism per
-backend in the [Backends](#backends) table). A critical review's update drops the
-critical push, because iOS can't replace a critical notification and would ring
-twice.
+**Updates are quiet.** The clip or a GenAI summary edits a notification that
+already alerted without alerting again (per backend: the [Backends](#backends)
+table). A critical review's update drops the critical push, because iOS can't
+replace a critical notification and would ring twice.
