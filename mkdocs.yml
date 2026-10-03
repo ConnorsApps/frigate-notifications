@@ -1,0 +1,55 @@
+# Built with Zensical (see .github/workflows/docs.yml); MkDocs with Material
+# reads the same file.
+site_name: Frigate Notifications
+site_url: https://connorsapps.github.io/frigate-notifications/
+site_description: >-
+  Rule-based Frigate alerts on the Home Assistant Companion app, Slack, ntfy,
+  and Discord.
+repo_name: ConnorsApps/frigate-notifications
+repo_url: https://github.com/ConnorsApps/frigate-notifications
+
+theme:
+  name: material
+  features:
+    - content.code.copy
+    - content.tabs.link
+    - navigation.footer
+    - search.highlight
+  palette:
+    - scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+    - scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+
+markdown_extensions:
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  # The home and install pages include sections of README.md.
+  - pymdownx.snippets:
+      check_paths: true
+
+watch:
+  - README.md
+
+nav:
+  - Home: index.md
+  - Install:
+      - Get started: install.md
+      - Docker Compose: docker-compose.md
+      - Kubernetes (Helm): kubernetes.md
+      - Home Assistant add-on: https://github.com/ConnorsApps/home-assistant-addons/blob/main/frigate-notifications/DOCS.md
+  - Configuration: configuration.md
+  - Notifications: notifications.md
+  - How it works: how-it-works.md
+  - Troubleshooting: troubleshooting.md
+  - Development: development.md
