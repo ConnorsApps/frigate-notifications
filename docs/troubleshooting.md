@@ -1,8 +1,17 @@
 # Troubleshooting
 
-Three tools, each for a different question: did it show up (`notify-test`), why
-did it fire (`replay`), and what actually happened (`events`). Run them from a
-checkout of this repo, with Go installed.
+```mermaid
+flowchart TD
+  start([No notification]) --> review{{Review in events?}}
+  review -->|no| mqtt[Check MQTT: broker, credentials, topic prefix]
+  review -->|yes| sent{{Notification in events?}}
+  sent -->|none| replay[replay it: which rule matched, and why]
+  sent -->|failed| target[notify-test that target]
+  sent -->|ok| device[notify-test --review, then the device table]
+```
+
+Run the tools from a checkout of this repo, with Go installed. `events` reads
+the audit log, so it needs `db.url`.
 
 ## Sending a test notification
 
@@ -70,11 +79,14 @@ and the last N notifications with their rendered message:
 ```
 
 The `scripts/` helpers run `kubectl` against namespace `frigate` (override with
-`NS`). `db-uri.sh` fills in `DB_URL` from the running config Secret, so no local
-`config.yaml` is needed. `mongosh.sh` opens a shell on a Mongo database
-(`MONGO_NS`, `MONGO_POD`; use `psql` for Postgres). `notif-log.sh`
-pretty-prints the request body of every *failed* Home Assistant call from the
-pod's logs; it doesn't need the database, so it works during an outage.
+`NS`):
+
+| Script | Does |
+|---|---|
+| `events.sh` | runs `cmd/events` with `DB_URL` from `db-uri.sh` |
+| `db-uri.sh` | prints `db.url` from the running config Secret |
+| `mongosh.sh` | opens a shell on a Mongo database (`MONGO_NS`, `MONGO_POD`); use `psql` for Postgres |
+| `notif-log.sh` | pretty-prints every *failed* Home Assistant call from the pod's logs; needs no database |
 
 Suppressed notifications (cooldown, active hours, rate cap) aren't persisted;
 they're metrics only (`frigate_notify_suppressed_total`).

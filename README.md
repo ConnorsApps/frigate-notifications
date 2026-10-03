@@ -68,9 +68,11 @@ HTTPS URL.
 
 <!-- --8<-- [start:compose] -->
 ```sh
-url=https://raw.githubusercontent.com/ConnorsApps/frigate-notifications/main
-curl -O "$url/docker-compose.yml"
-curl -o config.yaml "$url/config-example.yaml"   # then edit it
+url=https://raw.githubusercontent.com/ConnorsApps/frigate-notifications/main/compose
+curl -O "$url/compose.yaml"
+curl -o .env "$url/.env.example"
+curl -o config.yaml "$url/config-example.yaml"
+# Fill in .env and config.yaml, then:
 docker compose up -d
 ```
 <!-- --8<-- [end:compose] -->

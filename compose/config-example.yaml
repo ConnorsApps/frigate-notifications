@@ -1,0 +1,33 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/ConnorsApps/frigate-notifications/main/config.schema.json
+# Who gets notified, where, and when. Addresses and tokens are in .env.
+
+recipients:
+  alice:
+    targets:
+      - { type: hass, service: mobile_app_alices_phone } # notify.mobile_app_alices_phone
+    allowCritical: true # critical rules ring through Do Not Disturb
+  bob:
+    targets:
+      - { type: hass, service: mobile_app_bobs_phone }
+    activeHours: { from: 7am, to: 10pm } # awake hours; quiet outside them
+
+cameras: # Frigate's camera names; reviews from others are ignored
+  front_door: { friendlyName: Front Door }
+  driveway: { friendlyName: Driveway }
+
+rules: # first match wins
+  - name: night-stranger
+    when:
+      hours: { from: dusk+30m, to: dawn-30m }
+      labels: [person]
+      excludeSubLabels: [alice, bob] # recognized faces
+    to: [alice, bob]
+    critical: true
+
+  - name: daytime
+    when:
+      hours: { from: dawn-30m, to: dusk+30m }
+      labels: [person, car, package]
+      severity: [alert]
+    cooldown: 5m
+    to: [alice, bob]

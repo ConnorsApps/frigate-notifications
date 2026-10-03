@@ -18,10 +18,10 @@ pip install zensical
 zensical serve   # http://localhost:8000
 ```
 
-The site builds from `mkdocs.yml` and `docs/`. Its home and install pages
-include sections of `README.md`, so keep the README's snippet-marker comments.
-CI builds with `--strict`, so a broken link or anchor fails, and deploys `main`
-to GitHub Pages.
+The site builds from `mkdocs.yml` and `docs/`. Pages include the files in
+`compose/` and sections of `README.md`, so keep the README's snippet-marker
+comments. CI builds with `--strict`, so a broken link or anchor fails, and
+deploys `main` to GitHub Pages.
 
 ## Schemas
 
