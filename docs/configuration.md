@@ -5,11 +5,9 @@ One YAML file sets who gets notified, where, and by which rules.
 ## Config file
 
 YAML at `CONFIG_PATH` (default `config.yaml`);
-[`config-example.yaml`](https://github.com/ConnorsApps/frigate-notifications/blob/main/config-example.yaml) shows the full shape.
-Parsing is strict: an unknown key is an error, so a typo like `sevrity:` can't
-silently widen a rule. For editor validation, point
-`# yaml-language-server: $schema=` at
-[`config.schema.json`](https://github.com/ConnorsApps/frigate-notifications/blob/main/config.schema.json).
+[`config-example.yaml`](https://github.com/ConnorsApps/frigate-notifications/blob/main/config-example.yaml)
+shows the full shape. Parsing is strict: an unknown key is an error, so a typo
+like `sevrity:` can't silently widen a rule.
 
 ## Environment variables
 
@@ -29,6 +27,7 @@ rule ANDs its `when` conditions; each list within one is an OR; anything
 omitted matches everything.
 
 ```yaml
+# yaml-language-server: $schema=https://raw.githubusercontent.com/ConnorsApps/frigate-notifications/main/config.schema.json
 rules:
   - name: night-person
     when:

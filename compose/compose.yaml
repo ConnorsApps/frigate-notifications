@@ -1,19 +1,19 @@
-# Example: frigate-notify with Valkey (state) and PostgreSQL (audit log).
-# Assumes Frigate, MQTT and Home Assistant already exist; see
+# Frigate Notifications with Valkey (state) and PostgreSQL (history). Addresses
+# and tokens come from .env; people, cameras and rules from config.yaml. See
 # https://connorsapps.github.io/frigate-notifications/docker-compose/
 services:
   frigate-notify:
-    image: ghcr.io/connorsapps/frigate-notifications:latest
+    image: ghcr.io/connorsapps/frigate-notifications:latest # or a release, e.g. :0.2.0
     restart: unless-stopped
+    env_file: .env
     environment:
       CONFIG_PATH: /etc/frigate-notify/config.yaml
-      # Override redis.url / db.url from config.yaml.
       REDIS_URL: redis://valkey:6379
-      DB_URL: postgres://frigate-notify:${POSTGRES_PASSWORD:-change-me}@postgres:5432/frigate-notify
+      DB_URL: postgres://frigate-notify:${POSTGRES_PASSWORD}@postgres:5432/frigate-notify
     volumes:
       - ./config.yaml:/etc/frigate-notify/config.yaml:ro
     ports:
-      # Signed media links only; :8080 (health, metrics) stays internal.
+      # Picture links only; :8080 (health) stays internal.
       - "8081:8081"
     depends_on:
       valkey:
@@ -35,7 +35,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: frigate-notify
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: frigate-notify
     volumes:
       - postgres-data:/var/lib/postgresql/data
