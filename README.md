@@ -4,34 +4,29 @@
 Rule-based [Frigate](https://frigate.video) alerts for the whole household, on
 the Home Assistant Companion app, Slack, ntfy, and Discord.
 
-## Why use it
-
-- **Wake me for a stranger, not the family.** A person after dusk, no known
-  face, alarm armed: a critical alert through Do Not Disturb (Companion app).
-- **One rule list for everyone.** Each person picks their apps and keeps their
-  own awake hours, critical opt-in, and hourly cap.
-- **Snapshot now, clip when it ends.** The same notification quietly updates
-  with the clip and Frigate's GenAI summary.
-- **Pictures that load anywhere.** Signed, expiring links: no VPN or Frigate
-  login.
-- **No alert storms.** Cooldowns, and a digest past each person's hourly cap.
-- **"Why did that fire?"** Replay a review against your rules, or send yourself
-  a test.
-
-## What a rule looks like
-
 ```yaml
-rules:                                 # first match wins
-  - name: night-person
+recipients:
+  alice:
+    targets: [{ type: hass, service: mobile_app_alices_phone }]
+    allowCritical: true                  # rings through Do Not Disturb
+  bob:
+    targets: [{ type: slack, channel: U0123ABCD }]
+    activeHours: { from: 7am, to: 10pm } # quiet outside these
+
+rules:                                   # first match wins
+  - name: night-stranger
     when:
       hours: { from: dusk+30m, to: dawn-30m }
       labels: [person]
-      excludeSubLabels: [alice, bob]   # recognized faces
+      excludeSubLabels: [alice, bob]     # recognized faces
     unless:
       - entityState: { alarm_control_panel.home: disarmed }
     to: [alice, bob]
     critical: true
 ```
+
+Alerts arrive with a snapshot, then quietly update with the clip and Frigate's
+GenAI summary.
 
 Coming from [SgtBatten's blueprint](https://github.com/SgtBatten/HA_blueprints)?
 One rule list replaces its automation per person.
