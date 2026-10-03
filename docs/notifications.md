@@ -114,27 +114,44 @@ carried; `kind="none"` means every candidate failed and it fell back to text
 
 ## Lifecycle
 
-Frigate reports a review three times, then once more if GenAI review summaries
-are on:
+Frigate reports a review as it starts, changes and ends, then once more with
+its GenAI summary (Frigate ≥ 0.17, `review.genai` on). One notification follows
+it, updated in place:
 
-| phase | what happens |
-|---|---|
-| `new` | wait out any `holdoff`, match, check the cooldown, send |
-| `update` | re-match: Frigate can escalate a review from `detection` to `alert` mid-life, so a `severity: [alert]` rule can still fire |
-| `end` | re-match. Same rule, or a higher-priority one that isn't more critical → refresh in place with the clip and any GenAI description. One that raises it to **critical** → a fresh notification (tag `-esc`), since in-place updates are silent; the earlier one stays |
-| `genai` | after `end`, once Frigate's GenAI summary is ready (Frigate ≥ 0.17, `review.genai` on). Not a rule phase: it quietly edits the delivered notification, title as headline and summary as detail, and does nothing if none was sent. Threat level 1 prefixes "Needs review:", 2 "Security concern:"; it's shown, never acted on |
+```mermaid
+---
+config:
+  sequence:
+    mirrorActors: false
+---
+sequenceDiagram
+  participant F as Frigate
+  participant N as Frigate Notifications
+  participant P as Phone
+  F->>N: new
+  Note over N: wait out any holdoff, then match
+  N->>P: alert, with the snapshot
+  F->>N: update or end
+  Note over N: match again
+  alt a higher-priority rule makes it critical
+    N->>P: a second, critical alert
+  else on end
+    N-->>P: quiet update, with the clip
+  end
+  F->>N: genai
+  N-->>P: quiet update, with the summary
+```
 
-A later phase re-pushes **only to raise criticality**: a higher-priority rule
-that merely adds detail (a zone, a sub-label) refreshes in place, and a
-lower-priority match never downgrades a critical alert.
+- Any phase can send the first alert, so a review Frigate raises from
+  `detection` to `alert` can still fire a `severity: [alert]` rule.
+- A higher-priority rule that only adds detail, like a zone or a face,
+  refreshes in place; a lower-priority match never demotes a critical alert.
+- Updates are quiet on every [backend](#backends). A critical review's update
+  drops the critical push: iOS can't replace one, and would ring twice.
+- GenAI threat level 1 prefixes "Needs review:", and 2 "Security concern:".
+  It's shown, never acted on.
 
 `holdoff` exists because face recognition lags: `sub_labels` is usually empty
-on the `new` payload, so `excludeSubLabels` checked at once would let the rule
-fire, and a push can't be recalled. Rules using sub-labels default to 5s. The
-decision uses the newest payload seen during the wait; a review that ends
-during it is decided at once.
-
-**Updates are quiet.** The clip or a GenAI summary edits a notification that
-already alerted without alerting again (per backend: the [Backends](#backends)
-table). A critical review's update drops the critical push, because iOS can't
-replace a critical notification and would ring twice.
+on `new`, and a push can't be recalled. Rules with `labels: [person]` or a
+sub-label condition wait 5s by default, then decide on the newest payload; an
+`end` during the wait decides at once.

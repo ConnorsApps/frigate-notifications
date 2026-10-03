@@ -8,51 +8,9 @@ flowchart TD
   app --> chat[Slack, ntfy, Discord]
 ```
 
-## Deciding
-
-```mermaid
-flowchart TD
-  review[New review] --> rule{{First matching rule?}}
-  rule -->|none| drop1([Nothing sent])
-  rule -->|match| cooldown{{Rule cooling down?}}
-  cooldown -->|yes| drop2([Nothing sent])
-  cooldown -->|no| each
-  subgraph each [For each of the rule's recipients]
-    direction TB
-    critical{{Critical, and allowCritical?}} -->|yes| send([Sent to every target])
-    critical -->|no| awake{{Inside activeHours?}}
-    awake -->|no| drop3([Nothing sent])
-    awake -->|yes| cap{{Past maxPerHour?}}
-    cap -->|no| send
-    cap -->|yes| digest([Folded into a digest])
-  end
-```
-
-## A review's life
-
-One notification per review, updated in place without alerting again:
-
-```mermaid
----
-config:
-  sequence:
-    mirrorActors: false
----
-sequenceDiagram
-  participant F as Frigate
-  participant N as Frigate Notifications
-  participant P as Phone
-  F->>N: new
-  Note over N: wait out any holdoff, then decide
-  N->>P: alert, with the snapshot
-  F->>N: end
-  N-->>P: quiet update, with the clip
-  F->>N: genai
-  N-->>P: quiet update, with the summary
-```
-
-A later phase alerts again only to raise a review to critical; see
-[Lifecycle](notifications.md#lifecycle).
+Rules and each person's [recipient policy](configuration.md#recipient-policy)
+decide who's notified; the notification then follows the review's
+[lifecycle](notifications.md#lifecycle).
 
 ## Media proxy
 
@@ -88,8 +46,8 @@ Cooldowns, review state, rate caps and digests are kept in:
 
 ```mermaid
 flowchart LR
-  redis{redis.url?} -->|set| valkey[(Valkey)]
-  redis -->|unset| db{db.url?}
+  redis{{redis.url?}} -->|set| valkey[(Valkey)]
+  redis -->|unset| db{{db.url?}}
   db -->|set| database[(PostgreSQL or MongoDB)]
   db -->|unset| memory[Memory, lost on restart]
 ```

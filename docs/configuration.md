@@ -14,11 +14,10 @@ like `sevrity:` can't silently widen a rule.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `CONFIG_PATH` | `config.yaml` | Path to the YAML config file |
-| `VERSION` | — | Build version, reported to OTel |
-| `HASS_*`, `MQTT_*`, `MEDIA_*`, `SLACK_BOT_TOKEN`, `NTFY_*`, `REDIS_URL`, `DB_URL`, `TIMEZONE` | — | Override the matching config key (`HASS_URL` → `hass.url`, `MEDIA_SIGNING_KEY` → `media.signingKey`, …); see the `env` tags in `internal/config/config.go` |
+| `HASS_*`, `MQTT_*`, `MEDIA_*`, `SLACK_BOT_TOKEN`, `NTFY_*`, `REDIS_URL`, `DB_URL`, `TIMEZONE` | — | Override the matching config key (`HASS_URL` → `hass.url`, `MEDIA_SIGNING_KEY` → `media.signingKey`, …), as in the [Compose `.env`](docker-compose.md) |
 
-A non-empty variable overrides the file; an empty one is ignored. Settings
-without an `env` tag come only from the file.
+A non-empty variable overrides the file; an empty one is ignored. Everything
+else comes only from the file.
 
 ## Rules
 
@@ -38,40 +37,27 @@ rules:
     unless:
       - entityState: { alarm_control_panel.home: disarmed }
       - entityState: { input_boolean.guest_mode: 'on' }
-    holdoff: 5s
+    holdoff: 5s                        # wait for face recognition
     cooldown: 5m
-    cooldownScope: rule
+    cooldownScope: rule                # camera (default), rule, or global
     to: [alice, bob]
-    preset: liveview
-    critical: true
+    preset: liveview                   # auto (default), text, or liveview
+    critical: true                     # for recipients with allowCritical
 ```
 
 ### Time windows
 
-`hours` and `activeHours` take `from` and `to`, each a quoted wall-clock
-`"HH:MM"`, a 12-hour time (`9am`, `11:30pm`), `noon`/`midnight`, or a solar
-event (`sunrise`, `sunset`, `dawn`, `dusk`) with an optional offset
-(`dusk+30m`). A `to` earlier than `from` wraps midnight.
-
-Solar events come from Home Assistant's `sun.sun`, so night rules follow the
-seasons; a fixed 23:00–06:00 window misses six dark hours in December.
-
-Quote 24-hour times: bare `06:00` is a YAML sexagesimal integer.
-
-### Rule timezone
-
-`hours` use the top-level `timezone` unless a rule sets its own, e.g. for a
-camera in another timezone:
+`hours` and `activeHours` each take a window:
 
 ```yaml
-rules:
-  - name: remote-camera-daytime
-    timezone: America/Los_Angeles
-    when:
-      hours: { from: 9am, to: 6pm }
-      cameras: [warehouse_west]
-    to: [alice]
+- { from: dusk+30m, to: dawn-30m } # sunrise, sunset, dawn or dusk, ± an offset
+- { from: "22:00", to: "06:00" }   # 24-hour, quoted: 06:00 alone is a number
+- { from: 9am, to: noon }          # 12-hour, noon or midnight
 ```
+
+Solar times come from Home Assistant's `sun.sun`, so night rules follow the
+seasons. A `to` before `from` wraps midnight. A rule's own `timezone`, if set,
+overrides the top-level one for its `hours`.
 
 ### `unless`
 
@@ -81,14 +67,26 @@ when we're home and awake", which sub-label exclusion can't express.
 
 ## Recipient policy
 
-Applied after a rule matches, once per recipient rather than per target: a phone
-push and a Slack DM are rate-capped as one person, and the digest goes to both.
+After a rule matches, each recipient's own policy applies, once per person
+rather than per target: a phone push and a Slack DM share one hourly cap and
+digest.
 
-- `allowCritical: false` downgrades a critical rule to a normal push.
-- `activeHours` is the awake window: outside it, non-critical pushes are
-  dropped.
-- `maxPerHour` collapses the overflow into a self-replacing digest.
+```mermaid
+flowchart TD
+  review[New review] --> rule{{First matching rule?}}
+  rule -->|none| drop1([Nothing sent])
+  rule -->|match| cooldown{{Rule cooling down?}}
+  cooldown -->|yes| drop2([Nothing sent])
+  cooldown -->|no| each
+  subgraph each [For each of the rule's recipients]
+    direction TB
+    critical{{Critical, and allowCritical?}} -->|yes| send([Sent to every target])
+    critical -->|no| awake{{Inside activeHours?}}
+    awake -->|no| drop3([Nothing sent])
+    awake -->|yes| cap{{Past maxPerHour?}}
+    cap -->|no| send
+    cap -->|yes| digest([Folded into a digest])
+  end
+```
 
-Critical notifications bypass active hours and the rate cap; that's what
-`allowCritical` opts into. Each recipient's `targets` are covered in
-[Backends](notifications.md#backends).
+Each recipient's `targets` are covered in [Backends](notifications.md#backends).
