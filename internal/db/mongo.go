@@ -26,6 +26,10 @@ type mongoDB struct {
 	kv            *mongo.Collection // decision state
 	metrics       eventstore.Metrics
 	logger        zerolog.Logger
+
+	// stopSetup ends the background index setup; setupDone closes when it has.
+	stopSetup context.CancelFunc
+	setupDone chan struct{}
 }
 
 // kvDoc is one state entry; N backs counters, Value everything else.
@@ -54,22 +58,49 @@ func openMongo(ctx context.Context, uri string, m eventstore.Metrics, o openOpti
 
 	pingCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	if err := client.Ping(pingCtx, nil); err != nil {
+	pingErr := client.Ping(pingCtx, nil)
+	// The server keeps going without a database that isn't up yet: the driver
+	// reconnects by itself, and the indexes are retried below. A one-shot tool
+	// has nothing to wait for, so it fails.
+	if pingErr != nil && o.readOnly {
 		_ = client.Disconnect(context.Background())
-		return nil, fmt.Errorf("ping: %w", err)
+		return nil, fmt.Errorf("ping: %w", pingErr)
+	}
+
+	setupCtx, stop := context.WithCancel(context.Background())
+	c.stopSetup, c.setupDone = stop, make(chan struct{})
+	if o.readOnly {
+		close(c.setupDone)
+		c.logger.Info().Str("db", mongoDBName).Msg("connected to mongo (read-only)")
+		return c, nil
 	}
 
 	// Best-effort: a conflicting leftover index shouldn't disable persistence.
-	if !o.readOnly {
-		if err := c.ensureIndexes(ctx); err != nil {
-			c.logger.Warn().Err(err).Msg("failed to ensure indexes; continuing without them")
-		}
+	// A failure is retried until it succeeds.
+	ready := false
+	if pingErr != nil {
+		c.logger.Warn().Err(pingErr).Msg("mongo is not reachable yet; retrying in the background")
+	} else if err := c.ensureIndexes(ctx); err != nil {
+		c.logger.Warn().Err(err).Msg("failed to ensure indexes; retrying in the background")
+	} else {
+		ready = true
+		c.logger.Info().Str("db", mongoDBName).Msg("connected to mongo")
 	}
-	c.logger.Info().Str("db", mongoDBName).Msg("connected to mongo")
+	go func() {
+		defer close(c.setupDone)
+		if ready {
+			return
+		}
+		if retryUntil(setupCtx, schemaRetryMin, schemaRetryMax, func() error { return c.ensureIndexes(setupCtx) }) {
+			c.logger.Info().Str("db", mongoDBName).Msg("connected to mongo")
+		}
+	}()
 	return c, nil
 }
 
 func (c *mongoDB) Close(ctx context.Context) error {
+	c.stopSetup()
+	<-c.setupDone
 	return c.client.Disconnect(ctx)
 }
 

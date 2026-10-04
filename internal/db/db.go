@@ -110,3 +110,24 @@ func writeAsync(logger zerolog.Logger, m eventstore.Metrics, op string, write fu
 		m.EventStoreWrite(op, "ok")
 	}()
 }
+
+// Backoff for setting up a database that wasn't reachable at startup.
+const (
+	schemaRetryMin = 2 * time.Second
+	schemaRetryMax = time.Minute
+)
+
+// retryUntil runs fn until it succeeds, waiting lo, then doubling up to hi
+// between attempts. It reports false if ctx ended first.
+func retryUntil(ctx context.Context, lo, hi time.Duration, fn func() error) bool {
+	for wait := lo; ; wait = min(wait*2, hi) {
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(wait):
+		}
+		if fn() == nil {
+			return true
+		}
+	}
+}
