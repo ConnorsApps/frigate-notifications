@@ -29,8 +29,8 @@ import (
 const serviceName = "FrigateNotify"
 
 const (
-	// internalAddr serves health and metrics. It is never routed through the
-	// public gateway.
+	// internalAddr serves /healthz and /readyz. It is never routed through the
+	// public gateway. Metrics are pushed over OTLP; nothing scrapes this port.
 	internalAddr = ":8080"
 	// mediaAddr serves signed media links and nothing else, because the
 	// networking chart has no path matching: whatever port is routed
@@ -122,12 +122,14 @@ func main() {
 	go verifyTargets(ctx, senders, cfg)
 
 	httpErrCh := make(chan error, 2)
+	servers := 1
 
 	go func() {
 		httpErrCh <- httpserver.RunGraceful(ctx, internalAddr, internalMux())
 	}()
 
 	if signer != nil {
+		servers++
 		proxy := media.NewProxy(signer, cfg.Media.FrigateURL, media.WithMetrics(m))
 		go func() {
 			httpErrCh <- httpserver.RunGraceful(ctx, mediaAddr, proxy.Handler())
@@ -156,8 +158,12 @@ func main() {
 	}
 	defer sub.Close()
 
-	if err := <-httpErrCh; err != nil {
-		log.Fatal().Err(err).Msg("http server error")
+	// A server returns early only on error; on shutdown each returns once its
+	// in-flight requests are done, and the process must wait for all of them.
+	for ; servers > 0; servers-- {
+		if err := <-httpErrCh; err != nil {
+			log.Fatal().Err(err).Msg("http server error")
+		}
 	}
 }
 
