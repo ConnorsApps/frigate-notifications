@@ -31,13 +31,13 @@ securityContext:
 
 service:
   type: ClusterIP
-  # port serves /healthz, /readyz and metrics — cluster-internal only.
+  # port serves /healthz and /readyz — cluster-internal only.
   port: 8080
   # mediaPort serves signed media links and is the only port routed publicly.
   mediaPort: 8081
 
 # Gateway API HTTPRoute for the media port only (service.mediaPort); the
-# health/metrics port is never routed. Needs the Gateway API CRDs and an
+# health port is never routed. Needs the Gateway API CRDs and an
 # existing Gateway.
 httpRoute:
   enabled: false

@@ -1582,7 +1582,7 @@
           ]
         },
         "enabled": {
-          "description": "Render a Gateway API HTTPRoute for the media port (service.mediaPort). It never routes the health/metrics port.",
+          "description": "Render a Gateway API HTTPRoute for the media port (service.mediaPort). It never routes the health port.",
           "type": "boolean"
         },
         "hostnames": {
@@ -2629,7 +2629,7 @@
           "type": "integer"
         },
         "port": {
-          "description": "Serves /healthz, /readyz and metrics — cluster-internal only",
+          "description": "Serves /healthz and /readyz — cluster-internal only",
           "maximum": 65535,
           "minimum": 1,
           "type": "integer"

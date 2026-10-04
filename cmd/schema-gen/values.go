@@ -49,7 +49,7 @@ type imageValues struct {
 
 type serviceValues struct {
 	Type      serviceType `json:"type" description:"Kubernetes Service type"`
-	Port      int         `json:"port" minimum:"1" maximum:"65535" description:"Serves /healthz, /readyz and metrics — cluster-internal only"`
+	Port      int         `json:"port" minimum:"1" maximum:"65535" description:"Serves /healthz and /readyz — cluster-internal only"`
 	MediaPort int         `json:"mediaPort" minimum:"1" maximum:"65535" description:"Serves signed media links and is the only port routed publicly"`
 }
 
@@ -63,7 +63,7 @@ type parentRef struct {
 }
 
 type httpRouteValues struct {
-	Enabled     bool              `json:"enabled" description:"Render a Gateway API HTTPRoute for the media port (service.mediaPort). It never routes the health/metrics port."`
+	Enabled     bool              `json:"enabled" description:"Render a Gateway API HTTPRoute for the media port (service.mediaPort). It never routes the health port."`
 	Annotations map[string]string `json:"annotations" description:"HTTPRoute annotations"`
 	Hostnames   []string          `json:"hostnames" description:"Hostnames the route answers for; the host in config.media.publicBaseURL. Required when enabled."`
 	ParentRefs  []parentRef       `json:"parentRefs" description:"Gateways (and listeners) the route attaches to. Required when enabled."`
