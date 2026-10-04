@@ -19,6 +19,12 @@ like `sevrity:` can't silently widen a rule.
 A non-empty variable overrides the file; an empty one is ignored. Everything
 else comes only from the file.
 
+## Cameras
+
+`cameras` lists the Frigate cameras to notify about, with an optional
+`friendlyName` for the title. Reviews from a camera that isn't listed are
+ignored (logged once as a warning), so at least one is required.
+
 ## Rules
 
 Rules are ordered and the first match wins, so **position is priority**. Each
@@ -64,6 +70,8 @@ overrides the top-level one for its `hours`.
 A list of the same condition blocks as `when`: **any** matching entry
 suppresses the rule, and conditions within one entry are ANDed. Use it for "not
 when we're home and awake", which sub-label exclusion can't express.
+`excludeSubLabels` is for `when` only: under `unless` it would hold when a
+stranger is present, so it is rejected.
 
 ## Recipient policy
 

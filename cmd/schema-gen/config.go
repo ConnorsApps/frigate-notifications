@@ -95,7 +95,7 @@ type ruleConditions struct {
 	Labels           []string          `json:"labels" description:"Object labels, matched against the review's objects"`
 	Zones            []string          `json:"zones" description:"Zones the review touched"`
 	SubLabels        []string          `json:"subLabels" description:"Recognized faces that must be present"`
-	ExcludeSubLabels []string          `json:"excludeSubLabels" description:"Recognized faces that suppress the rule, e.g. household members. Only suppresses when every detected person is recognized and excluded; an unrecognized or non-excluded person alongside them still matches"`
+	ExcludeSubLabels []string          `json:"excludeSubLabels" description:"Recognized faces that suppress the rule, e.g. household members. Only suppresses when every detected person is recognized and excluded; an unrecognized or non-excluded person alongside them still matches. Not allowed under unless"`
 	Severity         []severity        `json:"severity" description:"Frigate review severity"`
 	Hours            *window           `json:"hours" description:"Time-of-day window this rule applies in"`
 	MinDwell         duration          `json:"minDwell" description:"Object must persist at least this long, e.g. 15s"`
@@ -132,7 +132,7 @@ type config struct {
 	DashboardURL  string               `json:"dashboardURL" pattern:"^(https?://.+)?$" description:"Absolute http(s) URL of the same dashboard, for backends that can't resolve a relative path"`
 	DryRun        bool                 `json:"dryRun" description:"Build and log notifications without sending them"`
 	Recipients    map[string]recipient `json:"recipients" minProperties:"1" description:"Keyed by recipient name, referenced by rules[].to. At least one is required."`
-	Cameras       map[string]camera    `json:"cameras" description:"Keyed by Frigate camera name"`
+	Cameras       map[string]camera    `json:"cameras" minProperties:"1" description:"Keyed by Frigate camera name. Reviews from a camera not listed here are ignored. At least one is required."`
 	Rules         []rule               `json:"rules" minItems:"1" description:"Ordered; the first matching rule wins, and position is priority. At least one is required."`
 	LogLevel      string               `json:"logLevel" description:"trace/debug/info/warn/error (default: info)"`
 }

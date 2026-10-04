@@ -83,6 +83,9 @@ type Notifier struct {
 	pendingMu sync.Mutex
 	pending   map[string]*pendingDecision
 
+	// unconfigured holds the cameras already warned about.
+	unconfigured sync.Map
+
 	// now is overridable so the replay tool can evaluate rules at an
 	// arbitrary wall clock.
 	now func() time.Time
@@ -154,7 +157,12 @@ func (n *Notifier) HandleReview(ctx context.Context, event frigate.ReviewEvent) 
 	}
 
 	if _, known := n.cfg.Cameras[review.Camera]; !known {
-		n.logger.Debug().Str("camera", review.Camera).Msg("ignoring review for unconfigured camera")
+		// Once per camera: a camera added in Frigate and not here otherwise
+		// never notifies, with nothing in the log to say why.
+		if _, seen := n.unconfigured.LoadOrStore(review.Camera, true); !seen {
+			n.logger.Warn().Str("camera", review.Camera).
+				Msg("ignoring reviews from a camera that is not in the config's cameras")
+		}
 		return
 	}
 

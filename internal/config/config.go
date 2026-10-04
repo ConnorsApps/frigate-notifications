@@ -236,16 +236,28 @@ type Rule struct {
 // which usually lands a few seconds after "new".
 const defaultHoldoff = 5 * time.Second
 
-// EffectiveHoldoff is the configured holdoff, or the face-recognition
-// default for any rule that can match a person.
+// EffectiveHoldoff is the configured holdoff, or the face-recognition default
+// for any rule that depends on who was recognized: one that can match a person
+// (the notification names them) or that conditions on sub-labels, in `when` or
+// in `unless` — an unless entry on a face is decided just as early.
 func (r Rule) EffectiveHoldoff() time.Duration {
 	if r.Holdoff != nil {
 		return time.Duration(*r.Holdoff)
 	}
-	if len(r.When.ExcludeSubLabels) > 0 || len(r.When.SubLabels) > 0 || slices.Contains(r.When.Labels, "person") {
+	waits := r.When.usesFaces() || slices.ContainsFunc(r.When.Labels, func(l string) bool { return strings.EqualFold(l, "person") })
+	for _, u := range r.Unless {
+		waits = waits || u.usesFaces()
+	}
+	if waits {
 		return defaultHoldoff
 	}
 	return 0
+}
+
+// usesFaces reports whether the conditions read recognized sub-labels, which
+// land after the review opens.
+func (c RuleConditions) usesFaces() bool {
+	return len(c.SubLabels) > 0 || len(c.ExcludeSubLabels) > 0
 }
 
 type Config struct {
@@ -401,6 +413,14 @@ func (c *Config) validate() error {
 	if len(c.Recipients) == 0 {
 		add("recipients: at least one recipient is required")
 	}
+	if len(c.Cameras) == 0 {
+		// Reviews from a camera that isn't listed are ignored, so with none
+		// listed nothing would ever be sent.
+		add("cameras: at least one camera is required (reviews from cameras not listed are ignored)")
+	}
+	if c.Media.LinkTTL < 0 {
+		add("media.linkTTL must not be negative")
+	}
 	for name, r := range c.Recipients {
 		if len(r.Targets) == 0 {
 			add("recipients.%s.targets: at least one target is required", name)
@@ -440,10 +460,22 @@ func (c *Config) validate() error {
 		if len(rule.To) == 0 {
 			add("%s.to is required", where)
 		}
+		seenTo := map[string]bool{}
 		for _, to := range rule.To {
 			if _, ok := c.Recipients[to]; !ok {
 				add("%s.to: unknown recipient %q", where, to)
 			}
+			if seenTo[to] {
+				add("%s.to: recipient %q is listed twice and would be notified twice", where, to)
+			}
+			seenTo[to] = true
+		}
+
+		if rule.Cooldown < 0 {
+			add("%s.cooldown must not be negative", where)
+		}
+		if rule.Holdoff != nil && *rule.Holdoff < 0 {
+			add("%s.holdoff must not be negative", where)
 		}
 
 		switch rule.Preset {
@@ -462,6 +494,11 @@ func (c *Config) validate() error {
 		for j, u := range rule.Unless {
 			if u.IsZero() {
 				add("%s.unless[%d]: empty — an empty unless entry would suppress the rule entirely", where, j)
+			}
+			if len(u.ExcludeSubLabels) > 0 {
+				// It holds when someone ISN'T accounted for, so under unless it
+				// would suppress for strangers and fire for the household.
+				add("%s.unless[%d].excludeSubLabels: not allowed here; to skip a review that only shows these faces use excludeSubLabels in `when`", where, j)
 			}
 			c.validateConditions(fmt.Sprintf("%s.unless[%d]", where, j), u, add)
 		}
@@ -536,6 +573,9 @@ func (c *Config) validateConditions(where string, cond RuleConditions, add func(
 		}
 	}
 	validateWindow(where+".hours", cond.Hours, add)
+	if cond.MinDwell < 0 {
+		add("%s.minDwell must not be negative", where)
+	}
 }
 
 // validateWindow rejects a half-specified window. A missing endpoint parses as
