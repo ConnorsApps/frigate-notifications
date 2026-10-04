@@ -1,5 +1,5 @@
 apiVersion: v2
 name: frigate-notifications
 description: Frigate to Home Assistant notification bridge
-version: 0.6.1
-appVersion: "0.2.0"
+version: 0.6.2
+appVersion: "0.3.0"
