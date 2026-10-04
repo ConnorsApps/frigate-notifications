@@ -46,6 +46,10 @@ type Delivery struct {
 	Target    int    `json:"target"`
 	// Ref is opaque to the store; "" for backends that replace by tag.
 	Ref string `json:"ref,omitempty"`
+	// Tag is set when this notification isn't under ReviewState.Tag: an
+	// escalation re-pushes under a new tag and leaves the quieter notification
+	// of anyone it didn't reach on the old one.
+	Tag string `json:"tag,omitempty"`
 }
 
 // Recipients returns the distinct recipients, in first-delivered order.
@@ -197,6 +201,14 @@ func (s *Store) AcquireCooldown(ctx context.Context, scopeKey string, ttl time.D
 		return true
 	}
 	return s.setNX(ctx, "cooldown", "fn:cooldown:"+scopeKey, ttl)
+}
+
+// ReleaseCooldown ends a cooldown window early, for a send that never went out:
+// a cooldown exists to stop a second push, and nothing was pushed.
+func (s *Store) ReleaseCooldown(ctx context.Context, scopeKey string) {
+	s.do("releaseCooldown", func(b Backend) error {
+		return b.Del(ctx, "fn:cooldown:"+scopeKey)
+	})
 }
 
 // SaveReview records what was sent for a review so a later phase can update

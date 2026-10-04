@@ -293,7 +293,7 @@ func (n *Notifier) decide(ctx context.Context, review frigate.ReviewPayload, pha
 	prior, hasPrior := n.store.LoadReview(ctx, review.ID)
 	switch {
 	case !hasPrior:
-		n.sendNew(ctx, review, phase, idx, rule, false)
+		n.sendNew(ctx, review, phase, idx, rule, nil)
 
 	case idx < prior.RuleIndex && rule.Critical && !prior.Critical:
 		// A genuine escalation: a higher-priority rule matches now and it
@@ -307,7 +307,7 @@ func (n *Notifier) decide(ctx context.Context, review frigate.ReviewPayload, pha
 			Str("from", prior.RuleName).
 			Str("to", rule.Name).
 			Msg("escalating review to a higher-priority critical rule")
-		n.sendNew(ctx, review, phase, idx, rule, true)
+		n.sendNew(ctx, review, phase, idx, rule, &prior)
 
 	case idx < prior.RuleIndex:
 		// A higher-priority rule matches, but it isn't a criticality
@@ -372,12 +372,17 @@ func (n *Notifier) cachedDescription(ctx context.Context, eventID string) string
 	return n.store.Description(ctx, eventID)
 }
 
-// sendNew delivers a first or escalated notification. An escalation gets a new
-// tag: Android alert_once and ntfy's replace are silent, and it must be heard.
-// The quieter one stays.
-func (n *Notifier) sendNew(ctx context.Context, review frigate.ReviewPayload, phase rules.Phase, idx int, rule config.Rule, escalation bool) {
+// sendNew delivers a first or escalated notification; escalating is the state
+// of the quieter notification being escalated, nil for a first send. An
+// escalation gets a new tag: Android alert_once and ntfy's replace are silent,
+// and it must be heard. The quieter one stays.
+func (n *Notifier) sendNew(ctx context.Context, review frigate.ReviewPayload, phase rules.Phase, idx int, rule config.Rule, escalating *store.ReviewState) {
+	// An escalation isn't a new review to be rate-limited: this review is
+	// already known, and a cooldown that an unrelated earlier alert started
+	// must not silence the critical version of it.
 	scopeKey := cooldownKey(rule, idx, review.Camera)
-	if !n.store.AcquireCooldown(ctx, scopeKey, time.Duration(rule.Cooldown)) {
+	cooling := escalating == nil && rule.Cooldown > 0
+	if escalating == nil && !n.store.AcquireCooldown(ctx, scopeKey, time.Duration(rule.Cooldown)) {
 		n.logger.Debug().Str("reviewId", review.ID).Str("rule", rule.Name).
 			Str("scope", scopeKey).Msg("suppressed by cooldown")
 		n.metrics.Suppressed("cooldown", rule.Name, "")
@@ -385,15 +390,24 @@ func (n *Notifier) sendNew(ctx context.Context, review frigate.ReviewPayload, ph
 	}
 
 	tag := "fn-" + review.ID
-	if escalation {
+	if escalating != nil {
 		tag += "-esc"
 	}
 	eventID := review.PrimaryEventID()
 	content := n.buildContent(ctx, review, rule, phase, tag, eventID, n.cachedDescription(ctx, eventID))
 
-	delivered := n.fanOut(ctx, review, rule, content, phase, eventID)
+	delivered := n.fanOut(ctx, review, rule, content, phase, eventID, escalating != nil)
 	if len(delivered) == 0 {
+		// Nothing went out (every target failed, or policy held everyone
+		// back), so the cooldown must not hold off the next review: after a
+		// backend blip that would swallow the alert it was meant to retry.
+		if cooling {
+			n.store.ReleaseCooldown(ctx, scopeKey)
+		}
 		return
+	}
+	if escalating != nil {
+		delivered = carryOver(delivered, *escalating)
 	}
 
 	// An end arriving before this write finds no state and sends a duplicate;
@@ -406,6 +420,24 @@ func (n *Notifier) sendNew(ctx context.Context, review frigate.ReviewPayload, ph
 		Critical:   rule.Critical,
 		EventID:    eventID,
 	})
+}
+
+// carryOver keeps the earlier notification of every target the escalation
+// didn't reach, under the tag it was sent with, so the end of the review still
+// updates it instead of leaving it stale.
+func carryOver(delivered []store.Delivery, prior store.ReviewState) []store.Delivery {
+	reached := make(map[[2]any]bool, len(delivered))
+	for _, d := range delivered {
+		reached[[2]any{d.Recipient, d.Target}] = true
+	}
+	for _, d := range prior.Deliveries {
+		if reached[[2]any{d.Recipient, d.Target}] {
+			continue
+		}
+		d.Tag = cmp.Or(d.Tag, prior.Tag)
+		delivered = append(delivered, d)
+	}
+	return delivered
 }
 
 // sendUpdate refreshes an already-delivered notification in place under the
@@ -470,7 +502,7 @@ func (n *Notifier) redeliver(
 			for i, d := range prior.Deliveries {
 				// The target list can shrink mid-review.
 				if d.Recipient == name && d.Target < len(recipient.Targets) {
-					jobs = append(jobs, job{target: d.Target, prev: d.Ref})
+					jobs = append(jobs, job{target: d.Target, prev: d.Ref, tag: d.Tag})
 					at = append(at, i)
 				}
 			}
@@ -495,7 +527,7 @@ func (n *Notifier) redeliver(
 
 // fanOut applies policy and delivers, concurrently per recipient, returning
 // what was sent.
-func (n *Notifier) fanOut(ctx context.Context, review frigate.ReviewPayload, rule config.Rule, c sender.Message, phase rules.Phase, eventID string) []store.Delivery {
+func (n *Notifier) fanOut(ctx context.Context, review frigate.ReviewPayload, rule config.Rule, c sender.Message, phase rules.Phase, eventID string, escalation bool) []store.Delivery {
 	perRecipient := make([][]store.Delivery, len(rule.To))
 
 	var wg sync.WaitGroup
@@ -505,6 +537,17 @@ func (n *Notifier) fanOut(ctx context.Context, review frigate.ReviewPayload, rul
 			continue
 		}
 		wg.Go(func() {
+			// An escalation exists to wake someone. A recipient who can't get
+			// the critical form already has this review's quieter push, and a
+			// second identical one would only be a duplicate. Skipped before
+			// policy so it doesn't count toward their hourly cap or digest.
+			if escalation && !(rule.Critical && recipient.AllowCritical) {
+				n.logger.Debug().
+					Str("reviewId", review.ID).Str("recipient", name).
+					Msg("escalation skipped: recipient cannot receive critical")
+				return
+			}
+
 			verdict := n.applyPolicy(ctx, name, recipient, rule, review.Camera)
 			if !verdict.send {
 				n.logger.Debug().
@@ -535,10 +578,12 @@ func (n *Notifier) fanOut(ctx context.Context, review frigate.ReviewPayload, rul
 	return delivered
 }
 
-// job is one send to a target; prev is the ref of the message there, if any.
+// job is one send to a target; prev is the ref of the message there, if any,
+// and tag overrides the message's tag when it was delivered under another.
 type job struct {
 	target int
 	prev   string
+	tag    string
 }
 
 // sendResult is a job's outcome.
@@ -569,6 +614,10 @@ func (n *Notifier) deliverTo(
 	for i, j := range jobs {
 		t := recipient.Targets[j.target]
 		wg.Go(func() {
+			msg := msg
+			if j.tag != "" {
+				msg.Tag = j.tag
+			}
 			rec := eventstore.NotificationRecord{
 				SentAt:     n.now(),
 				ReviewID:   reviewID,
@@ -583,7 +632,7 @@ func (n *Notifier) deliverTo(
 				DryRun:     n.cfg.DryRun,
 				Title:      c.Title,
 				Message:    c.Body,
-				Tag:        c.Tag,
+				Tag:        msg.Tag,
 				Image:      c.Image,
 				Video:      c.Video,
 				LiveEntity: c.LiveEntity,
