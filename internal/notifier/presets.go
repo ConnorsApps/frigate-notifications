@@ -16,8 +16,16 @@ import (
 	"github.com/ConnorsApps/frigate-notifications/internal/sender"
 )
 
-// mediaProbeBudget bounds all probing for one notification.
+// mediaProbeBudget bounds all probing for one notification. Each candidate also
+// gets its own limit, which together fit the budget: a clip Frigate is slow to
+// produce must not use it all up and leave the still and the snapshot, which
+// are cheap, no time to be tried. Vars so tests can shorten them.
 const mediaProbeBudget = 15 * time.Second
+
+var (
+	clipProbeTimeout  = 7 * time.Second
+	stillProbeTimeout = 4 * time.Second
+)
 
 // candidate is one piece of media a notification could carry.
 type candidate struct {
@@ -47,6 +55,12 @@ func (n *Notifier) check(ctx context.Context, cand candidate) error {
 	if n.prober == nil {
 		return nil
 	}
+	timeout := stillProbeTimeout
+	if cand.kind == media.KindClip {
+		timeout = clipProbeTimeout
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 	err := n.prober.Check(ctx, cand.kind, cand.id, cand.kind.Limit())
 	if err != nil {
 		n.logger.Info().Err(err).Str("kind", string(cand.kind)).Str("id", cand.id).

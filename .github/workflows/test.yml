@@ -52,5 +52,9 @@ jobs:
           go run .
           git diff --exit-code -- ../../config.schema.json ../../chart/values.schema.json
 
+      # The notifier is heavily concurrent: timers, per-target goroutines.
       - name: Test
-        run: go test ./...
+        run: go test -race ./...
+
+      - name: Formatted
+        run: test -z "$(gofmt -l .)"

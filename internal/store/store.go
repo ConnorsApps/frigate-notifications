@@ -46,6 +46,10 @@ type Delivery struct {
 	Target    int    `json:"target"`
 	// Ref is opaque to the store; "" for backends that replace by tag.
 	Ref string `json:"ref,omitempty"`
+	// Tag is set when this notification isn't under ReviewState.Tag: an
+	// escalation re-pushes under a new tag and leaves the quieter notification
+	// of anyone it didn't reach on the old one.
+	Tag string `json:"tag,omitempty"`
 }
 
 // Recipients returns the distinct recipients, in first-delivered order.
@@ -96,8 +100,8 @@ type options struct{ kv Backend }
 func WithBackend(kv Backend) Option { return func(o *options) { o.kv = kv } }
 
 // New returns a store backed by Valkey at url, else the WithBackend database,
-// else memory. A startup connection failure is not fatal: state just doesn't
-// survive restarts.
+// else memory. A connection failure is never fatal: until the store answers,
+// state is in memory and just doesn't survive a restart.
 func New(ctx context.Context, url string, m Metrics, opts ...Option) *Store {
 	if m == nil {
 		m = nopMetrics{}
@@ -113,10 +117,16 @@ func New(ctx context.Context, url string, m Metrics, opts ...Option) *Store {
 	}
 	switch {
 	case url != "":
-		rb, err := newRedisBackend(ctx, url)
+		rb, err := newRedisBackend(url)
 		if err != nil {
-			s.logger.Error().Err(err).Msg("redis unavailable at startup; continuing with in-memory state")
+			s.logger.Error().Err(err).Msg("invalid redis url; continuing with in-memory state")
 			return s
+		}
+		// Valkey is usually deployed alongside this app and may well come up
+		// after it. Keep the client either way: it reconnects by itself, and
+		// until it answers every operation falls back to memory.
+		if err := rb.ping(ctx); err != nil {
+			s.logger.Warn().Err(err).Msg("redis unavailable at startup; using in-memory state until it answers")
 		}
 		s.primary = rb
 		s.closer = rb
@@ -197,6 +207,14 @@ func (s *Store) AcquireCooldown(ctx context.Context, scopeKey string, ttl time.D
 		return true
 	}
 	return s.setNX(ctx, "cooldown", "fn:cooldown:"+scopeKey, ttl)
+}
+
+// ReleaseCooldown ends a cooldown window early, for a send that never went out:
+// a cooldown exists to stop a second push, and nothing was pushed.
+func (s *Store) ReleaseCooldown(ctx context.Context, scopeKey string) {
+	s.do("releaseCooldown", func(b Backend) error {
+		return b.Del(ctx, "fn:cooldown:"+scopeKey)
+	})
 }
 
 // SaveReview records what was sent for a review so a later phase can update

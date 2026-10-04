@@ -52,7 +52,7 @@ func WithMetrics(m Metrics) ProxyOption { return func(p *Proxy) { p.metrics = m 
 
 func NewProxy(signer *Signer, frigateURL string, opts ...ProxyOption) *Proxy {
 	p := &Proxy{
-		frigate: newFrigate(frigateURL, 60*time.Second),
+		frigate: newFrigate(frigateURL, proxyStreamTimeout),
 		signer:  signer,
 		sem:     make(chan struct{}, 8),
 		metrics: nopMetrics{},
@@ -65,7 +65,7 @@ func NewProxy(signer *Signer, frigateURL string, opts ...ProxyOption) *Proxy {
 }
 
 // Handler returns the mux for the public listener. Only /m/ is routed here;
-// health and metrics live on the internal listener and are unreachable from
+// health checks live on the internal listener and are unreachable from
 // the public gateway.
 func (p *Proxy) Handler() http.Handler {
 	mux := http.NewServeMux()
@@ -189,6 +189,15 @@ func (p *Proxy) forward(w http.ResponseWriter, r *http.Request, kind Kind, upstr
 	p.metrics.MediaServed(string(kind))
 }
 
+// Upstream limits. A client's Timeout also covers reading the body, and a
+// proxied clip is read as fast as the phone downloads it, so the proxy's
+// overall limit is generous and only a stalled upstream is cut early, by the
+// header timeout; time to first byte is where a slow Frigate shows up.
+const (
+	upstreamHeaderTimeout = 30 * time.Second
+	proxyStreamTimeout    = 15 * time.Minute
+)
+
 // frigate is the Frigate client shared by the proxy and the Prober so both
 // see the same view of Frigate. It never follows redirects.
 type frigate struct {
@@ -196,10 +205,14 @@ type frigate struct {
 	client *http.Client
 }
 
+// newFrigate bounds a whole request, body included, by timeout.
 func newFrigate(frigateURL string, timeout time.Duration) frigate {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.ResponseHeaderTimeout = upstreamHeaderTimeout
 	return frigate{
 		base: strings.TrimSuffix(frigateURL, "/"),
 		client: &http.Client{
+			Transport:     transport,
 			Timeout:       timeout,
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		},

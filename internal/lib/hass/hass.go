@@ -29,6 +29,10 @@ func New(url, token string) *Client {
 	return &Client{
 		resty: resty.New().
 			SetBaseURL(url).
+			// Per attempt: callers bound a whole call with their context, but a
+			// Home Assistant that accepts the connection and never replies
+			// would otherwise hang any caller that has none.
+			SetTimeout(10 * time.Second).
 			SetRetryCount(3).
 			SetRetryWaitTime(2 * time.Second).
 			SetAuthToken(token).

@@ -80,9 +80,13 @@ func openPostgres(ctx context.Context, url string, m eventstore.Metrics, o openO
 
 	pingCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	if err := pool.Ping(pingCtx); err != nil {
+	pingErr := pool.Ping(pingCtx)
+	// The server keeps going without a database that isn't up yet: the pool
+	// connects on use and recovers by itself, and the schema is retried below.
+	// A one-shot tool has nothing to wait for, so it fails.
+	if pingErr != nil && o.readOnly {
 		pool.Close()
-		return nil, fmt.Errorf("ping: %w", err)
+		return nil, fmt.Errorf("ping: %w", pingErr)
 	}
 
 	janitorCtx, stop := context.WithCancel(context.Background())
@@ -103,13 +107,19 @@ func openPostgres(ctx context.Context, url string, m eventstore.Metrics, o openO
 		return p, nil
 	}
 
-	// Best-effort: without tables, writes just fail and log.
-	if err := p.ensureSchema(ctx); err != nil {
-		p.logger.Warn().Err(err).Msg("failed to ensure schema; continuing without it")
+	// Best-effort: without tables, writes just fail and log. A failure is
+	// retried by the janitor until it succeeds.
+	schemaReady := false
+	if pingErr != nil {
+		p.logger.Warn().Err(pingErr).Msg("postgres is not reachable yet; retrying in the background")
+	} else if err := p.ensureSchema(ctx); err != nil {
+		p.logger.Warn().Err(err).Msg("failed to ensure schema; retrying in the background")
+	} else {
+		schemaReady = true
+		p.logger.Info().Str("db", cfg.ConnConfig.Database).Msg("connected to postgres")
 	}
-	go p.janitor(janitorCtx)
+	go p.janitor(janitorCtx, schemaReady)
 
-	p.logger.Info().Str("db", cfg.ConnConfig.Database).Msg("connected to postgres")
 	return p, nil
 }
 
@@ -140,8 +150,11 @@ func (p *postgresDB) ensureSchema(ctx context.Context) error {
 	return nil
 }
 
-func (p *postgresDB) janitor(ctx context.Context) {
+func (p *postgresDB) janitor(ctx context.Context, schemaReady bool) {
 	defer close(p.janitorDone)
+	if !schemaReady && !retryUntil(ctx, schemaRetryMin, schemaRetryMax, func() error { return p.ensureSchema(ctx) }) {
+		return
+	}
 	p.sweep(ctx)
 	t := time.NewTicker(janitorInterval)
 	defer t.Stop()

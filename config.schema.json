@@ -5,7 +5,8 @@
   "additionalProperties": false,
   "properties": {
     "cameras": {
-      "description": "Keyed by Frigate camera name",
+      "description": "Keyed by Frigate camera name. Reviews from a camera not listed here are ignored. At least one is required.",
+      "minProperties": 1,
       "additionalProperties": {
         "additionalProperties": false,
         "properties": {
@@ -436,7 +437,7 @@
                   ]
                 },
                 "excludeSubLabels": {
-                  "description": "Recognized faces that suppress the rule, e.g. household members. Only suppresses when every detected person is recognized and excluded; an unrecognized or non-excluded person alongside them still matches",
+                  "description": "Recognized faces that suppress the rule, e.g. household members. Only suppresses when every detected person is recognized and excluded; an unrecognized or non-excluded person alongside them still matches. Not allowed under unless",
                   "items": {
                     "type": "string"
                   },
@@ -552,7 +553,7 @@
                 ]
               },
               "excludeSubLabels": {
-                "description": "Recognized faces that suppress the rule, e.g. household members. Only suppresses when every detected person is recognized and excluded; an unrecognized or non-excluded person alongside them still matches",
+                "description": "Recognized faces that suppress the rule, e.g. household members. Only suppresses when every detected person is recognized and excluded; an unrecognized or non-excluded person alongside them still matches. Not allowed under unless",
                 "items": {
                   "type": "string"
                 },

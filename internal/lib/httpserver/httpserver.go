@@ -4,25 +4,51 @@ package httpserver
 
 import (
 	"context"
+	"errors"
 	"net/http"
+	"time"
 )
 
-// RunGraceful starts an http.Server on addr with handler, blocking until
-// ctx is cancelled (at which point it shuts the server down) or
-// ListenAndServe returns a non-http.ErrServerClosed error.
+// Limits on a connection that isn't doing anything. No read or write timeout:
+// the media proxy streams clips for as long as a phone takes to download them.
+// Vars so tests can shorten them.
+var (
+	readHeaderTimeout = 10 * time.Second
+	idleTimeout       = 2 * time.Minute
+	// shutdownTimeout is how long in-flight requests get to finish once the
+	// context ends, before they are cut off.
+	shutdownTimeout = 10 * time.Second
+)
+
+// RunGraceful starts an http.Server on addr with handler. It blocks until the
+// server fails (returning the error) or ctx is canceled, then stops accepting
+// connections and waits for in-flight requests, up to shutdownTimeout, before
+// returning nil.
 func RunGraceful(ctx context.Context, addr string, handler http.Handler) error {
-	httpServer := &http.Server{
-		Addr:    addr,
-		Handler: handler,
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: readHeaderTimeout,
+		IdleTimeout:       idleTimeout,
 	}
 
-	go func() {
-		<-ctx.Done()
-		httpServer.Shutdown(context.Background())
-	}()
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- srv.ListenAndServe() }()
 
-	if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+	select {
+	case err := <-serveErr:
+		return err
+	case <-ctx.Done():
+	}
+
+	// ListenAndServe returns the moment Shutdown starts, so waiting for it
+	// proves nothing: Shutdown itself has to finish before the caller exits.
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil && !errors.Is(err, context.DeadlineExceeded) {
 		return err
 	}
+	// Past the deadline: drop what is left rather than hang the exit.
+	srv.Close()
 	return nil
 }

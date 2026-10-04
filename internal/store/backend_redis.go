@@ -13,7 +13,9 @@ type redisBackend struct {
 	client *redis.Client
 }
 
-func newRedisBackend(ctx context.Context, url string) (*redisBackend, error) {
+// newRedisBackend parses url and prepares a client. It does not connect:
+// go-redis dials on use and reconnects by itself.
+func newRedisBackend(url string) (*redisBackend, error) {
 	opts, err := redis.ParseURL(url)
 	if err != nil {
 		return nil, fmt.Errorf("parse redis url: %w", err)
@@ -24,15 +26,17 @@ func newRedisBackend(ctx context.Context, url string) (*redisBackend, error) {
 	opts.ReadTimeout = time.Second
 	opts.WriteTimeout = time.Second
 
-	client := redis.NewClient(opts)
+	return &redisBackend{client: redis.NewClient(opts)}, nil
+}
 
-	pingCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+// ping reports whether the server answers now.
+func (r *redisBackend) ping(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	if err := client.Ping(pingCtx).Err(); err != nil {
-		client.Close()
-		return nil, fmt.Errorf("redis ping: %w", err)
+	if err := r.client.Ping(ctx).Err(); err != nil {
+		return fmt.Errorf("redis ping: %w", err)
 	}
-	return &redisBackend{client: client}, nil
+	return nil
 }
 
 func (r *redisBackend) SetNX(ctx context.Context, key, val string, ttl time.Duration) (bool, error) {

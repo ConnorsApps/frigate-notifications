@@ -124,6 +124,46 @@ func TestValidationErrors(t *testing.T) {
 		wantMsg string
 	}{
 		{
+			name: "no cameras",
+			mutate: func(s string) string {
+				return strings.Replace(s, "cameras:\n  front_porch: { friendlyName: Front Porch, liveViewEntity: camera.front_porch }\n", "", 1)
+			},
+			wantMsg: "cameras: at least one camera is required",
+		},
+		{
+			name:    "recipient listed twice",
+			mutate:  func(s string) string { return strings.Replace(s, "to: [alice]", "to: [alice, alice]", 1) },
+			wantMsg: `recipient "alice" is listed twice`,
+		},
+		{
+			name:    "negative cooldown",
+			mutate:  func(s string) string { return strings.Replace(s, "cooldown: 30s", "cooldown: -5m", 1) },
+			wantMsg: "cooldown must not be negative",
+		},
+		{
+			name: "negative holdoff",
+			mutate: func(s string) string {
+				return strings.Replace(s, "cooldown: 30s", "cooldown: 30s\n    holdoff: -1s", 1)
+			},
+			wantMsg: "holdoff must not be negative",
+		},
+		{
+			name: "negative minDwell",
+			mutate: func(s string) string {
+				return strings.Replace(s, "labels: [person] }", "labels: [person], minDwell: -1s }", 1)
+			},
+			wantMsg: "minDwell must not be negative",
+		},
+		{
+			// Under unless it holds for a stranger, so it would suppress the
+			// wrong people.
+			name: "excludeSubLabels under unless",
+			mutate: func(s string) string {
+				return strings.Replace(s, "cooldown: 30s", "cooldown: 30s\n    unless: [{ excludeSubLabels: [alice] }]", 1)
+			},
+			wantMsg: "unless[0].excludeSubLabels: not allowed here",
+		},
+		{
 			name:    "unknown recipient",
 			mutate:  func(s string) string { return strings.Replace(s, "to: [alice]", "to: [nobody]", 1) },
 			wantMsg: `unknown recipient "nobody"`,
@@ -310,6 +350,9 @@ func TestEffectiveHoldoff(t *testing.T) {
 		{name: "requires sub-labels", rule: Rule{When: RuleConditions{SubLabels: []string{"alice"}}}, want: "5s"},
 		{name: "matches person label", rule: Rule{When: RuleConditions{Labels: []string{"person"}}}, want: "5s"},
 		{name: "matches non-person label only", rule: Rule{When: RuleConditions{Labels: []string{"dog"}}}, want: "0s"},
+		{name: "person label in any case", rule: Rule{When: RuleConditions{Labels: []string{"Person"}}}, want: "5s"},
+		{name: "unless on a face", rule: Rule{When: RuleConditions{Zones: []string{"yard"}}, Unless: []RuleConditions{{SubLabels: []string{"alice"}}}}, want: "5s"},
+		{name: "unless on something else", rule: Rule{When: RuleConditions{Zones: []string{"yard"}}, Unless: []RuleConditions{{EntityState: map[string]string{"input_boolean.home": "on"}}}}, want: "0s"},
 		{name: "explicit overrides the default", rule: Rule{Holdoff: &explicit, When: RuleConditions{ExcludeSubLabels: []string{"alice"}}}, want: "2ns"},
 	}
 	for _, tc := range tests {

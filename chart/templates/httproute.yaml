@@ -19,7 +19,7 @@ spec:
         - path:
             type: PathPrefix
             value: {{ .Values.httpRoute.pathPrefix | quote }}
-      # Always the media port: the health/metrics port serves every handler
+      # Always the media port: the health port serves every handler
       # bound to it, so it must never be reachable through a Gateway.
       backendRefs:
         - name: {{ include "frigate-notify.fullname" . }}
