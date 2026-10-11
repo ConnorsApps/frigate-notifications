@@ -1410,6 +1410,10 @@
       },
       "type": "object"
     },
+    "enabled": {
+      "description": "Only for a parent chart that gates this chart with condition: frigate-notifications.enabled, which puts the key here. The chart itself does not read it.",
+      "type": "boolean"
+    },
     "extraEnv": {
       "description": "Extra container env vars, appended last so they override anything the chart sets",
       "items": {
@@ -1566,6 +1570,14 @@
       "description": "Override the fully qualified resource name",
       "pattern": "^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$",
       "type": "string"
+    },
+    "global": {
+      "description": "Values shared with parent charts. Helm adds this key to every subchart, so it must be allowed; the chart reads none of it.",
+      "additionalProperties": {},
+      "type": [
+        "object",
+        "null"
+      ]
     },
     "httpRoute": {
       "description": "Optional Gateway API HTTPRoute exposing the media port",

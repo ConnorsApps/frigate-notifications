@@ -136,6 +136,8 @@ type mongoValues struct {
 }
 
 type values struct {
+	Global             map[string]any                `json:"global" description:"Values shared with parent charts. Helm adds this key to every subchart, so it must be allowed; the chart reads none of it."`
+	Enabled            bool                          `json:"enabled" description:"Only for a parent chart that gates this chart with condition: frigate-notifications.enabled, which puts the key here. The chart itself does not read it."`
 	ReplicaCount       int                           `json:"replicaCount" minimum:"0" description:"Number of app replicas"`
 	Image              imageValues                   `json:"image"`
 	ImagePullSecrets   []corev1.LocalObjectReference `json:"imagePullSecrets" description:"Secrets used to pull the app image"`

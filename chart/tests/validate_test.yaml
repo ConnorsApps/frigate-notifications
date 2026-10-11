@@ -92,6 +92,22 @@ tests:
       - failedTemplate:
           errorPattern: additional properties 'nope' not allowed
 
+  # As a subchart, Helm adds the parent's global values, and a parent's
+  # `condition: frigate-notifications.enabled` puts enabled here.
+  - it: allows the values a parent chart adds to a subchart
+    set:
+      global.example: 1
+      enabled: true
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: rejects a non-boolean enabled
+    set:
+      enabled: maybe
+    asserts:
+      - failedTemplate:
+          errorPattern: /enabled
+
   - it: rejects an out-of-range port
     set:
       service.port: 0
