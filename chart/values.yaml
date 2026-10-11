@@ -1,4 +1,4 @@
-# yaml-language-server: $schema=./values.schema.json
+# yaml-language-server: $schema=https://raw.githubusercontent.com/ConnorsApps/frigate-notifications/main/chart/values.schema.json
 
 replicaCount: 1
 
