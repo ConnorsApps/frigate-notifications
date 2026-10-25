@@ -79,6 +79,17 @@ After a rule matches, each recipient's own policy applies, once per person
 rather than per target: a phone push and a Slack DM share one hourly cap and
 digest.
 
+`skipWhenOnly` lists recognized faces a recipient doesn't need to hear about,
+usually themselves and their household. A non-critical push is skipped when
+every recognized face in the review is one of them; a recognized face outside
+the list notifies, and so does a critical alert. Unlike `excludeSubLabels` on a
+rule, it mutes only that recipient.
+
+Frigate lists each label once, however many people carry it, so an unrecognized
+stranger standing beside a listed person usually can't be told from a
+fragment of that person's own track and is skipped too. Keep the list to
+people whose absence from the push you accept in that case.
+
 ```mermaid
 flowchart TD
   review[New review] --> rule{{First matching rule?}}
@@ -89,7 +100,9 @@ flowchart TD
   subgraph each [For each of the rule's recipients]
     direction TB
     critical{{Critical, and allowCritical?}} -->|yes| send([Sent to every target])
-    critical -->|no| awake{{Inside activeHours?}}
+    critical -->|no| only{{Only skipWhenOnly people?}}
+    only -->|yes| drop4([Nothing sent])
+    only -->|no| awake{{Inside activeHours?}}
     awake -->|no| drop3([Nothing sent])
     awake -->|yes| cap{{Past maxPerHour?}}
     cap -->|no| send

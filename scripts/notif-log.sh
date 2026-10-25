@@ -6,7 +6,7 @@
 #   ./scripts/notif-log.sh 500
 set -euo pipefail
 
-kubectl -n "${NS:-frigate}" logs deploy/frigate-notify --tail "${1:-200}" \
+kubectl -n "${NS:-frigate}" logs deploy/frigate-notifications --tail "${1:-200}" \
 	| sed -r 's/\x1b\[[0-9;]*m//g' \
 	| grep -oE 'body=\{.*\}' \
 	| sed 's/^body=//' \

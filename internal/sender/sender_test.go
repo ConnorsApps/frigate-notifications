@@ -1228,3 +1228,15 @@ func TestTruncate(t *testing.T) {
 		t.Errorf("truncate = %q, want 5 runes ending in an ellipsis", got)
 	}
 }
+
+// Push backends show only title and body, so recognized names join the title.
+func TestRecognizedNamesJoinThePushTitle(t *testing.T) {
+	m := started()
+	m.Who = "Alice"
+	if got := ntfyBody(t, m)["title"]; got != "Front Porch · Alice" {
+		t.Errorf("ntfy title = %v", got)
+	}
+	if got := NewHass(nil).payload(m)["title"]; got != "Front Porch · Alice" {
+		t.Errorf("hass title = %v", got)
+	}
+}

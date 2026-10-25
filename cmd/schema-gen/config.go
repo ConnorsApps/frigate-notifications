@@ -77,6 +77,7 @@ type recipient struct {
 	AllowCritical bool     `json:"allowCritical" description:"Allow critical rules to bypass this recipient's silent/do-not-disturb mode. On backends with no such bypass, critical is styling only."`
 	ActiveHours   *window  `json:"activeHours" description:"Non-critical notifications are sent only inside this window; outside it, only critical ones get through"`
 	MaxPerHour    int      `json:"maxPerHour" minimum:"0" description:"Beyond this many notifications per hour, collapse into a rolling digest (0 = no cap)"`
+	SkipWhenOnly  []string `json:"skipWhenOnly" description:"Recognized faces this recipient does not need to hear about, e.g. themselves and their household. A non-critical notification is skipped when every recognized face is one of them; a recognized face outside the list still notifies. An unrecognized person beside them usually cannot be told apart from the same person's own track, so it is skipped too. Critical notifications are never skipped."`
 }
 
 type camera struct {

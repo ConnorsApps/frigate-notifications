@@ -55,6 +55,7 @@ recipients:
       - { type: ntfy, topic: alice-frigate }
     allowCritical: true
     maxPerHour: 8
+    skipWhenOnly: [alice] # no push when the only person seen is alice
   bob:
     targets:
       - { type: hass, service: mobile_app_bob_phone }

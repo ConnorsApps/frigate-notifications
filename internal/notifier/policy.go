@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/ConnorsApps/frigate-notifications/internal/config"
+	"github.com/ConnorsApps/frigate-notifications/internal/frigate"
+	"github.com/ConnorsApps/frigate-notifications/internal/rules"
 	"github.com/ConnorsApps/frigate-notifications/internal/sender"
 )
 
@@ -31,8 +33,9 @@ func (n *Notifier) applyPolicy(
 	name string,
 	recipient config.Recipient,
 	rule config.Rule,
-	camera string,
+	review frigate.ReviewPayload,
 ) verdict {
+	camera := review.Camera
 	critical := rule.Critical && recipient.AllowCritical
 	now := n.now().In(n.cfg.Location)
 
@@ -40,6 +43,11 @@ func (n *Notifier) applyPolicy(
 	// the notification the recipient explicitly asked to be woken for.
 	if critical {
 		return verdict{send: true, critical: true}
+	}
+
+	if len(recipient.SkipWhenOnly) > 0 &&
+		rules.AccountsForEveryone(recipient.SkipWhenOnly, review.Data.SubLabels, review.Data.Objects) {
+		return verdict{reason: "only_skipped_people"}
 	}
 
 	if recipient.ActiveHours != nil && !n.inWindow(ctx, *recipient.ActiveHours, now) {

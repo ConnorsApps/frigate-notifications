@@ -161,3 +161,46 @@ func TestGenAIUpdateIsAuditedAsGenAI(t *testing.T) {
 		t.Errorf("slack phases = %v, want %s", phases, want)
 	}
 }
+
+func description(review frigate.ReviewEvent, text string) frigate.TrackedObjectUpdate {
+	return frigate.TrackedObjectUpdate{Type: frigate.TrackedObjectUpdateDescription, ID: review.After.PrimaryEventID(), Description: text}
+}
+
+// A description landing after the review ended edits the push quietly, once.
+func TestLateDescriptionEditsQuietly(t *testing.T) {
+	n, _, chat := newChatNotifier(t, multiTargetConfig(t))
+	ctx := context.Background()
+	end := loadReview(t, "review-end.json")
+	n.HandleReview(ctx, loadReview(t, "review-new.json"))
+	n.HandleReview(ctx, end)
+	before := len(chat.all())
+
+	upd := description(end, "Walking toward the door. Then leaves.")
+	n.HandleTrackedObjectUpdate(ctx, upd)
+	n.HandleTrackedObjectUpdate(ctx, upd) // repeat: nothing new
+
+	calls := chat.all()
+	if len(calls) != before+1 {
+		t.Fatalf("got %d messages, want %d", len(calls), before+1)
+	}
+	got := calls[len(calls)-1]
+	if got.msg.Detail != "Walking toward the door." || !got.msg.Update || got.prev == "" || got.msg.Tag != calls[0].msg.Tag {
+		t.Errorf("detail/update/prev/tag = %q/%v/%q/%q, want a quiet edit under the original tag", got.msg.Detail, got.msg.Update, got.prev, got.msg.Tag)
+	}
+}
+
+// Before the end the cache is enough: no push of its own, shown at the end.
+func TestEarlyDescriptionWaitsForTheEnd(t *testing.T) {
+	n, _, chat := newChatNotifier(t, multiTargetConfig(t))
+	ctx := context.Background()
+	end := loadReview(t, "review-end.json")
+	n.HandleReview(ctx, loadReview(t, "review-new.json"))
+	n.HandleTrackedObjectUpdate(ctx, description(end, "Walking toward the door."))
+	if got := len(chat.all()); got != 1 {
+		t.Fatalf("got %d messages before the end, want 1", got)
+	}
+	n.HandleReview(ctx, end)
+	if calls := chat.all(); calls[len(calls)-1].msg.Detail != "Walking toward the door." {
+		t.Errorf("end detail = %q", calls[len(calls)-1].msg.Detail)
+	}
+}

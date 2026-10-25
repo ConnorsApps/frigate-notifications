@@ -28,7 +28,11 @@ recipients:
 
 Every alert carries the camera, what was detected, zones, time, and severity;
 an ended review adds its duration and the clip, and a GenAI summary replaces
-the headline and adds its sentence. Per backend:
+the headline and adds its sentence. Push backends (`hass`, `ntfy`) put
+recognized names in the title (`Front Porch · Alice`) and show the object
+description as the body when there is one, falling back to "Person detected".
+Frigate writes that description some seconds after the review ends, so it
+arrives as a quiet edit of the notification already delivered. Per backend:
 
 - **`hass`**: grouped per camera, "Alert · Zone" as the iOS subtitle, the review
   start as the Android timestamp. Alerts are time-sensitive on iOS, so they get

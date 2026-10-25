@@ -3,7 +3,6 @@ package notifier
 import (
 	"context"
 	"errors"
-	"fmt"
 	"slices"
 	"strings"
 	"time"
@@ -176,12 +175,28 @@ func compose(cfg *config.Config, review frigate.ReviewPayload, phase rules.Phase
 		headline = threatPrefix(threat) + headline
 	}
 
+	// A GenAI summary keeps its title; an object description replaces the
+	// built headline, which only restates the label.
+	body := headline
+	switch {
+	case detail != "" && meta != nil:
+		body = headline + "\n" + detail
+	case detail != "":
+		body = detail
+	}
+
+	who := ""
+	if len(review.Data.SubLabels) > 0 {
+		who = buildSubject(review.Data)
+	}
+
 	msg := sender.Message{
 		Camera:   review.Camera,
 		Title:    cfg.CameraName(review.Camera),
+		Who:      who,
 		Headline: headline,
 		Detail:   detail,
-		Body:     strings.TrimSpace(headline + "\n" + detail),
+		Body:     strings.TrimSpace(body),
 		Objects:  normalizeObjects(review.Data.Objects),
 		Zones:    humanizeAll(review.Data.Zones),
 		Severity: string(review.Severity),
@@ -262,46 +277,32 @@ func humanizeAll(items []string) []string {
 	return out
 }
 
-// buildSubject names what a review saw. sub_labels can cover fewer people than
-// were detected, so the rest are named too.
+// buildSubject names what a review saw. Frigate lists each label once and one
+// sub_label per recognized object, so neither counts people: names are deduped
+// and no unnamed extra is inferred ("person" beside "person-verified" is one).
 func buildSubject(data frigate.ReviewData) string {
+	objects := normalizeObjects(data.Objects)
 	if len(data.SubLabels) == 0 {
-		objects := normalizeObjects(data.Objects)
 		if len(objects) == 0 {
 			return "Activity"
 		}
 		return humanizeList(objects)
 	}
 
-	parts := humanizeAll(data.SubLabels)
-
-	toRecognize := len(data.SubLabels)
-	unnamed := 0
-	var others []string
-	for _, obj := range data.Objects {
-		// "person-verified" is still a person.
-		obj = strings.TrimSuffix(obj, "-verified")
+	var parts []string
+	add := func(name string) {
+		if !slices.Contains(parts, name) {
+			parts = append(parts, name)
+		}
+	}
+	for _, name := range humanizeAll(data.SubLabels) {
+		add(name)
+	}
+	for _, obj := range objects {
 		if obj != "person" {
-			others = append(others, obj)
-			continue
+			add(humanize(obj))
 		}
-		if toRecognize > 0 {
-			toRecognize--
-			continue
-		}
-		unnamed++
 	}
-
-	switch {
-	case unnamed == 1:
-		parts = append(parts, "Another Person")
-	case unnamed > 1:
-		parts = append(parts, fmt.Sprintf("%d More People", unnamed))
-	}
-	for _, obj := range others {
-		parts = append(parts, humanize(obj))
-	}
-
 	return joinList(parts)
 }
 

@@ -143,6 +143,8 @@ type Recipient struct {
 	ActiveHours *Window `yaml:"activeHours"`
 	// MaxPerHour: beyond this, pushes collapse into a rolling digest. 0 = no cap.
 	MaxPerHour int `yaml:"maxPerHour"`
+	// SkipWhenOnly: no non-critical push when every recognized face is listed.
+	SkipWhenOnly []string `yaml:"skipWhenOnly"`
 }
 
 // Camera maps a Frigate camera name to presentation details.

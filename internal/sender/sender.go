@@ -23,10 +23,19 @@ const (
 	StageDigest  Stage = "digest"
 )
 
+// pushTitle is the camera, then who was recognized, for title-and-body pushes.
+func pushTitle(m Message) string {
+	if m.Who == "" {
+		return m.Title
+	}
+	return m.Title + " · " + m.Who
+}
+
 // Message is one notification, before a backend lays it out.
 type Message struct {
 	Camera string
 	Title  string // friendly camera name
+	Who    string // recognized people, "" when nobody was named
 	// Headline is what happened, or the GenAI title; Detail is GenAI text.
 	// Both may be model-written, so escape them for markup. Body is both on
 	// one field.

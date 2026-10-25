@@ -37,6 +37,8 @@ type ReviewState struct {
 	Deliveries []Delivery `json:"deliveries"`
 	Critical   bool       `json:"critical"`
 	EventID    string     `json:"eventId"`
+	// Payload is the review the notification was last rendered from.
+	Payload json.RawMessage `json:"payload,omitempty"`
 }
 
 // Delivery is one successful send: recipient, target (index into
@@ -225,7 +227,23 @@ func (s *Store) SaveReview(ctx context.Context, reviewID string, st ReviewState)
 		s.logger.Error().Err(err).Msg("failed to marshal review state")
 		return
 	}
-	s.set(ctx, "saveReview", "fn:review:"+reviewID, string(blob), 6*time.Hour)
+	s.set(ctx, "saveReview", "fn:review:"+reviewID, string(blob), reviewTTL)
+	if st.EventID != "" {
+		s.set(ctx, "saveReviewEvent", "fn:event:"+st.EventID, reviewID, reviewTTL)
+	}
+}
+
+// reviewTTL is how long a notified review can still be updated.
+const reviewTTL = 6 * time.Hour
+
+// LoadReviewByEvent returns the notified review for eventID, with its id.
+func (s *Store) LoadReviewByEvent(ctx context.Context, eventID string) (string, ReviewState, bool) {
+	reviewID, ok := s.get(ctx, "loadReviewEvent", "fn:event:"+eventID)
+	if !ok {
+		return "", ReviewState{}, false
+	}
+	st, ok := s.LoadReview(ctx, reviewID)
+	return reviewID, st, ok
 }
 
 // LoadReview returns what was sent for a review, if anything.

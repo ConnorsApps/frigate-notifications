@@ -125,6 +125,14 @@ func TestMatchConditions(t *testing.T) {
 			},
 			matched: true,
 		},
+		{
+			name: "a recognized face outside the list still matches",
+			cond: config.RuleConditions{ExcludeSubLabels: []string{"alice"}},
+			mutate: func(mc *MatchContext) {
+				mc.SubLabels = []string{"alice", "bob"}
+			},
+			matched: true,
+		},
 	}
 
 	for _, tc := range tests {

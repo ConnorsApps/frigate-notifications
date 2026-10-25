@@ -186,6 +186,16 @@
             "minimum": 0,
             "type": "integer"
           },
+          "skipWhenOnly": {
+            "description": "Recognized faces this recipient does not need to hear about, e.g. themselves and their household. A non-critical notification is skipped when every recognized face is one of them; a recognized face outside the list still notifies. An unrecognized person beside them usually cannot be told apart from the same person's own track, so it is skipped too. Critical notifications are never skipped.",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "targets": {
             "description": "Every place this recipient is notified. The policy below applies once per recipient, then every target gets the notification.",
             "items": {

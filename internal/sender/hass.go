@@ -136,7 +136,7 @@ func (h *Hass) payload(m Message) map[string]any {
 	}
 
 	return map[string]any{
-		"title":   m.Title,
+		"title":   pushTitle(m),
 		"message": m.Body,
 		"data":    data,
 	}

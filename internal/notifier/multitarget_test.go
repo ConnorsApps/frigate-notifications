@@ -381,3 +381,44 @@ func TestStillIsKeptAlongsideTheClip(t *testing.T) {
 		})
 	}
 }
+
+// skipWhenOnly mutes one recipient, never critical, never a recognized outsider.
+func TestSkipWhenOnly(t *testing.T) {
+	tests := []struct {
+		name      string
+		critical  bool
+		objects   []string
+		subLabels []string
+		want      []string
+	}{
+		{"only the listed person", false, []string{"person", "person-verified"}, []string{"alice", "alice"}, []string{"mobile_app_bob"}},
+		{"recognized guest too", false, []string{"person"}, []string{"alice", "bob"}, []string{"mobile_app_alice", "mobile_app_bob"}},
+		{"critical", true, []string{"person"}, []string{"alice"}, []string{"mobile_app_alice", "mobile_app_bob"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := testConfig(t)
+			cfg.Rules[0].To, cfg.Rules[0].Critical = []string{"alice", "bob"}, tc.critical
+			cfg.Recipients["alice"] = config.Recipient{
+				Targets:       []config.Target{{Type: config.TargetHass, Service: "mobile_app_alice"}},
+				AllowCritical: true,
+				SkipWhenOnly:  []string{"alice"},
+			}
+			cfg.Recipients["bob"] = config.Recipient{Targets: []config.Target{{Type: config.TargetHass, Service: "mobile_app_bob"}}}
+			n, hass := newTestNotifier(t, cfg)
+
+			ev := loadReview(t, "review-new.json")
+			ev.After.Data.Objects, ev.After.Data.SubLabels = tc.objects, tc.subLabels
+			n.HandleReview(context.Background(), ev)
+
+			var got []string
+			for _, c := range hass.all() {
+				got = append(got, c.service)
+			}
+			slices.Sort(got)
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("sent to %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

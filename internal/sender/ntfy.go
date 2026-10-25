@@ -75,7 +75,7 @@ func (n *Ntfy) Render(t config.Target, m Message) any { return n.render(t, m) }
 func (n *Ntfy) render(t config.Target, m Message) ntfyMessage {
 	msg := ntfyMessage{
 		Topic:   t.Topic,
-		Title:   m.Title,
+		Title:   pushTitle(m),
 		Message: m.Body,
 		Click:   m.ClickURL,
 		// Clients preview images, not mp4: attach a still, button the clip.

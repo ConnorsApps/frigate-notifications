@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -186,9 +187,12 @@ func (n *Notifier) handleGenAI(ctx context.Context, review frigate.ReviewPayload
 	n.sendUpdate(ctx, review, prior, rules.Phase(frigate.LifecycleGenAI))
 }
 
-// HandleTrackedObjectUpdate caches GenAI object descriptions. They arrive on
-// their own topic, typically after the review has already been notified, and
-// are folded into the end-phase update.
+// phaseDescription labels a late description's update.
+const phaseDescription rules.Phase = "description"
+
+// HandleTrackedObjectUpdate caches GenAI object descriptions. One landing
+// before the review ends rides the end update; a later one is an update of its
+// own.
 func (n *Notifier) HandleTrackedObjectUpdate(ctx context.Context, upd frigate.TrackedObjectUpdate) {
 	if upd.Type != frigate.TrackedObjectUpdateDescription || upd.Description == "" {
 		return
@@ -196,8 +200,27 @@ func (n *Notifier) HandleTrackedObjectUpdate(ctx context.Context, upd frigate.Tr
 	if n.events != nil {
 		n.events.SaveDescriptionUpdate(ctx, upd)
 	}
+	repeat := n.store.Description(ctx, upd.ID) == upd.Description
 	n.store.SetDescription(ctx, upd.ID, upd.Description)
 	n.logger.Debug().Str("eventId", upd.ID).Msg("cached genai description")
+	if !repeat {
+		n.handleLateDescription(ctx, upd.ID)
+	}
+}
+
+// handleLateDescription edits the notification already sent for eventID once
+// its review has ended. It never creates one.
+func (n *Notifier) handleLateDescription(ctx context.Context, eventID string) {
+	reviewID, prior, ok := n.store.LoadReviewByEvent(ctx, eventID)
+	if !ok || len(prior.Payload) == 0 {
+		return
+	}
+	var review frigate.ReviewPayload
+	if err := json.Unmarshal(prior.Payload, &review); err != nil || review.EndTime == nil {
+		return
+	}
+	n.logger.Debug().Str("reviewId", reviewID).Str("eventId", eventID).Msg("adding a late description")
+	n.sendUpdate(ctx, review, prior, phaseDescription)
 }
 
 // pendingDecision is a decision waiting out its holdoff. It holds the newest
@@ -427,7 +450,17 @@ func (n *Notifier) sendNew(ctx context.Context, review frigate.ReviewPayload, ph
 		Deliveries: delivered,
 		Critical:   rule.Critical,
 		EventID:    eventID,
+		Payload:    reviewPayload(review),
 	})
+}
+
+// reviewPayload is review encoded for ReviewState.Payload, nil on failure.
+func reviewPayload(review frigate.ReviewPayload) json.RawMessage {
+	raw, err := json.Marshal(review)
+	if err != nil {
+		return nil
+	}
+	return raw
 }
 
 // carryOver keeps the earlier notification of every target the escalation
@@ -472,6 +505,10 @@ func (n *Notifier) refresh(ctx context.Context, review frigate.ReviewPayload, co
 	next, changed := n.redeliver(ctx, review.ID, eventID, prior, content, rule, label)
 	if idx != prior.RuleIndex {
 		next.RuleIndex, next.RuleName, changed = idx, rule.Name, true
+	}
+	// Keep the newest payload for a later description.
+	if payload := reviewPayload(review); payload != nil {
+		next.Payload, changed = payload, true
 	}
 	if changed {
 		n.store.SaveReview(ctx, review.ID, next)
@@ -556,7 +593,7 @@ func (n *Notifier) fanOut(ctx context.Context, review frigate.ReviewPayload, rul
 				return
 			}
 
-			verdict := n.applyPolicy(ctx, name, recipient, rule, review.Camera)
+			verdict := n.applyPolicy(ctx, name, recipient, rule, review)
 			if !verdict.send {
 				n.logger.Debug().
 					Str("reviewId", review.ID).Str("recipient", name).Str("reason", verdict.reason).

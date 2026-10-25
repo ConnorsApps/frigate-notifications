@@ -202,22 +202,30 @@ func entityMatches(mc MatchContext, entityID, want string, onError bool) (bool, 
 // excludesEveryone reports whether every person mc saw is a recognized,
 // excluded face — an unaccounted-for person means it should not suppress.
 func excludesEveryone(exclude []string, mc MatchContext) bool {
-	excluded := 0
-	for _, sl := range mc.SubLabels {
-		if contains(exclude, sl) {
-			excluded++
+	return AccountsForEveryone(exclude, mc.SubLabels, mc.Labels)
+}
+
+// AccountsForEveryone reports whether subLabels has a face and all are in
+// names, and labels hold no more people than faces. Frigate lists each label
+// once, so a stranger beside a recognized person usually goes unseen.
+func AccountsForEveryone(names, subLabels, labels []string) bool {
+	known := 0
+	for _, sl := range subLabels {
+		if !contains(names, sl) {
+			return false
 		}
+		known++
 	}
-	if excluded == 0 {
+	if known == 0 {
 		return false
 	}
 	people := 0
-	for _, l := range mc.Labels {
+	for _, l := range labels {
 		if l == "person" {
 			people++
 		}
 	}
-	return excluded >= people
+	return known >= people
 }
 
 func contains(haystack []string, needle string) bool {

@@ -6,5 +6,5 @@
 #   NS=frigate ./scripts/db-uri.sh
 set -euo pipefail
 
-kubectl -n "${NS:-frigate}" get secret frigate-notify-config \
+kubectl -n "${NS:-frigate}" get secret frigate-notifications-config \
 	-o jsonpath='{.data.config\.yaml}' | base64 -d | yq -r '.db.url'

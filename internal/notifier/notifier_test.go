@@ -920,14 +920,14 @@ func TestHeadline(t *testing.T) {
 			want:   "Car detected",
 		},
 		{
-			name:   "a recognized face plus an unrecognized person",
-			review: frigate.ReviewPayload{Data: frigate.ReviewData{Objects: []string{"person", "person"}, SubLabels: []string{"alice"}}},
-			want:   "Alice and Another Person detected",
+			name:   "a recognized person and their verified track",
+			review: frigate.ReviewPayload{Data: frigate.ReviewData{Objects: []string{"person", "person-verified"}, SubLabels: []string{"alice"}}},
+			want:   "Alice detected",
 		},
 		{
-			name:   "a recognized face plus two unrecognized people",
-			review: frigate.ReviewPayload{Data: frigate.ReviewData{Objects: []string{"person", "person", "person"}, SubLabels: []string{"alice"}}},
-			want:   "Alice and 2 More People detected",
+			name:   "one person tracked twice is named once",
+			review: frigate.ReviewPayload{Data: frigate.ReviewData{Objects: []string{"person", "person"}, SubLabels: []string{"alice", "alice"}}},
+			want:   "Alice detected",
 		},
 		{
 			name:   "a recognized face plus a different object",
@@ -1018,8 +1018,19 @@ func TestCompose(t *testing.T) {
 		if msg.Detail != "Walking toward the door." {
 			t.Errorf("detail = %q", msg.Detail)
 		}
-		if msg.Body != "Person detected in Back Porch\nWalking toward the door." {
+		if msg.Body != "Walking toward the door." {
 			t.Errorf("body = %q", msg.Body)
+		}
+	})
+
+	t.Run("recognized names go in Who", func(t *testing.T) {
+		named := review
+		named.Data.SubLabels = []string{"alice", "alice"}
+		if got := compose(cfg, named, rules.PhaseNew, "fn-x", "").Who; got != "Alice" {
+			t.Errorf("who = %q", got)
+		}
+		if got := compose(cfg, review, rules.PhaseNew, "fn-x", "").Who; got != "" {
+			t.Errorf("who = %q, want none", got)
 		}
 	})
 
@@ -1039,6 +1050,15 @@ func TestCompose(t *testing.T) {
 		event.After.Data.Metadata = json.RawMessage(`{"title":"` + strings.Repeat("word ", 100) + `"}`)
 		if got := len([]rune(compose(cfg, event.After, rules.PhaseEnd, "fn-x", "").Headline)); got > maxTitle+1 {
 			t.Errorf("headline = %d runes, want at most %d", got, maxTitle+1)
+		}
+	})
+
+	t.Run("a threat level survives a summary with no title", func(t *testing.T) {
+		event := loadReview(t, "review-genai.json")
+		event.After.Data.Metadata = json.RawMessage(`{"title":"","shortSummary":"Someone tries the door.","potential_threat_level":2}`)
+		msg := compose(cfg, event.After, rules.PhaseEnd, "fn-x", "")
+		if !strings.HasPrefix(msg.Body, "Security concern: ") || !strings.HasSuffix(msg.Body, "Someone tries the door.") {
+			t.Errorf("body = %q", msg.Body)
 		}
 	})
 
