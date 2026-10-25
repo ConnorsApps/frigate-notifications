@@ -235,11 +235,18 @@ func TestValidationErrors(t *testing.T) {
 			wantMsg: "want an https webhook URL",
 		},
 		{
-			name: "relative dashboardURL",
+			name: "relative frigateUIURL",
 			mutate: func(s string) string {
-				return strings.Replace(s, "timezone:", "dashboardURL: /lovelace/frigate\ntimezone:", 1)
+				return strings.Replace(s, "timezone:", "frigateUIURL: /review\ntimezone:", 1)
 			},
-			wantMsg: "dashboardURL: want an absolute http(s) URL",
+			wantMsg: "frigateUIURL: want an absolute http(s) URL",
+		},
+		{
+			name: "frigateUIURL with a query",
+			mutate: func(s string) string {
+				return strings.Replace(s, "timezone:", "frigateUIURL: https://frigate.test/?a=b\ntimezone:", 1)
+			},
+			wantMsg: "frigateUIURL: want a base URL without a query or fragment",
 		},
 		{
 			name:    "notify service with domain prefix",
@@ -471,5 +478,18 @@ func TestRequiredConnectionSettingStillEnforced(t *testing.T) {
 	body := strings.Replace(minimalConfig, "hass: { url: http://hass, token: t }", "hass: { url: http://hass }", 1)
 	if _, err := Read(writeConfig(t, body)); err == nil || !strings.Contains(err.Error(), "HASS_TOKEN") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestReviewURL(t *testing.T) {
+	for _, tc := range []struct{ base, id, want string }{
+		{"", "r1", ""},
+		{"https://example.com/frigate/", "r1", "https://example.com/frigate/review?id=r1"},
+		{"https://frigate.test", "", "https://frigate.test/review"},
+		{"https://frigate.test", "a&b c", "https://frigate.test/review?id=a%26b+c"},
+	} {
+		if got := (&Config{FrigateUIURL: tc.base}).ReviewURL(tc.id); got != tc.want {
+			t.Errorf("ReviewURL(%q, %q) = %q, want %q", tc.base, tc.id, got, tc.want)
+		}
 	}
 }

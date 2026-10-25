@@ -188,7 +188,7 @@ func compose(cfg *config.Config, review frigate.ReviewPayload, phase rules.Phase
 		Threat:   threat,
 		Stage:    stageFor(phase),
 		Tag:      tag,
-		ClickURL: cfg.DashboardURL,
+		ClickURL: cfg.ReviewURL(review.ID),
 	}
 	if review.StartTime > 0 {
 		msg.Start = unixTime(review.StartTime)

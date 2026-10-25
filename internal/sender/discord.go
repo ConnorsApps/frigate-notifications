@@ -89,7 +89,7 @@ func (d *Discord) render(m Message) discordPayload {
 		links = append(links, discordLink(m.ClipURL, "▶ View clip"))
 	}
 	if m.ClickURL != "" {
-		links = append(links, discordLink(m.ClickURL, "Dashboard"))
+		links = append(links, discordLink(m.ClickURL, "Open in Frigate"))
 	}
 	desc := discordEscape(truncate(m.Detail, discordDetailMax))
 	if len(links) > 0 {

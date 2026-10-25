@@ -50,7 +50,7 @@ type Message struct {
 	Video    string // clip that fits an inline attachment
 	ClipURL  string // clip player page, even if the clip is too big to attach
 
-	ClickURL   string // absolute dashboard link
+	ClickURL   string // absolute link a tap opens
 	LiveEntity string // hass only
 
 	Critical bool // loudest treatment; styling only where there is no DND bypass
@@ -115,7 +115,7 @@ func (r Registry) Verify(ctx context.Context, recipients map[string]config.Recip
 // which config validation already requires of any target using them.
 func New(cfg *config.Config, hass HassClient) Registry {
 	r := Registry{
-		config.TargetHass:    NewHass(hass, cfg.DashboardPath),
+		config.TargetHass:    NewHass(hass),
 		config.TargetDiscord: NewDiscord(),
 	}
 	if cfg.Slack.BotToken != "" {

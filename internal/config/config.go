@@ -271,11 +271,8 @@ type Config struct {
 
 	// Timezone: IANA name for all wall-clock comparisons.
 	Timezone string `yaml:"timezone" env:"TIMEZONE" envDefault:"Local"`
-	// DashboardPath: Home Assistant path a notification tap opens.
-	DashboardPath string `yaml:"dashboardPath"`
-	// DashboardURL: absolute link to the same dashboard, for backends that
-	// aren't the Home Assistant app and so can't resolve a relative path.
-	DashboardURL string `yaml:"dashboardURL"`
+	// FrigateUIURL: where phones reach the Frigate UI; a tap opens the review.
+	FrigateUIURL string `yaml:"frigateUIURL"`
 	// DryRun builds and logs the full payload without calling Home Assistant.
 	DryRun bool `yaml:"dryRun"`
 
@@ -295,6 +292,24 @@ func (c *Config) CameraName(camera string) string {
 		return cam.FriendlyName
 	}
 	return camera
+}
+
+// ReviewListURL is the Frigate UI's review list, "" when frigateUIURL is unset.
+func (c *Config) ReviewListURL() string {
+	if c.FrigateUIURL == "" {
+		return ""
+	}
+	return strings.TrimSuffix(c.FrigateUIURL, "/") + "/review"
+}
+
+// ReviewURL opens one review (by review id, not event id) in the Frigate UI;
+// the list without an id, "" when frigateUIURL is unset.
+func (c *Config) ReviewURL(reviewID string) string {
+	base := c.ReviewListURL()
+	if base == "" || reviewID == "" {
+		return base
+	}
+	return base + "?id=" + url.QueryEscape(reviewID)
 }
 
 func MustRead(path string) *Config {
@@ -434,9 +449,13 @@ func (c *Config) validate() error {
 		validateWindow(fmt.Sprintf("recipients.%s.activeHours", name), r.ActiveHours, add)
 	}
 
-	if c.DashboardURL != "" {
-		if u, err := url.Parse(c.DashboardURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-			add("dashboardURL: want an absolute http(s) URL, got %q", c.DashboardURL)
+	if c.FrigateUIURL != "" {
+		u, err := url.Parse(c.FrigateUIURL)
+		switch {
+		case err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "":
+			add("frigateUIURL: want an absolute http(s) URL, got %q", c.FrigateUIURL)
+		case u.RawQuery != "" || u.Fragment != "":
+			add("frigateUIURL: want a base URL without a query or fragment, got %q", c.FrigateUIURL)
 		}
 	}
 

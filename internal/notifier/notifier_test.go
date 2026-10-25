@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/url"
 	"os"
 	"slices"
 	"strings"
@@ -112,9 +113,9 @@ func testConfig(t *testing.T) *config.Config {
 	t.Helper()
 	noHoldoff := config.Duration(0)
 	return &config.Config{
-		Timezone:      "UTC",
-		Location:      time.UTC,
-		DashboardPath: "/frigate/dashboard",
+		Timezone:     "UTC",
+		Location:     time.UTC,
+		FrigateUIURL: "https://frigate.test/",
 		Recipients: map[string]config.Recipient{
 			"alice": {Targets: hassTargets("mobile_app_alice"), AllowCritical: true},
 			"bob":   {Targets: hassTargets("mobile_app_bob"), AllowCritical: true},
@@ -164,11 +165,19 @@ func TestNotifiesEveryRecipient(t *testing.T) {
 	cfg := testConfig(t)
 	n, hass := newTestNotifier(t, cfg)
 
-	n.HandleReview(context.Background(), loadReview(t, "review-new.json"))
+	event := loadReview(t, "review-new.json")
+	n.HandleReview(context.Background(), event)
 
 	sent := hass.all()
 	if len(sent) != 2 {
 		t.Fatalf("sent %d notifications, want one per recipient", len(sent))
+	}
+	wantTap := "https://frigate.test/review?id=" + url.QueryEscape(event.After.ID)
+	for _, s := range sent {
+		data := s.payload["data"].(map[string]any)
+		if data["clickAction"] != wantTap || data["url"] != wantTap {
+			t.Errorf("tap = %v / %v, want %s", data["clickAction"], data["url"], wantTap)
+		}
 	}
 	services := map[string]bool{sent[0].service: true, sent[1].service: true}
 	if !services["mobile_app_alice"] || !services["mobile_app_bob"] {
@@ -571,8 +580,12 @@ func TestRateCapCollapsesIntoADigest(t *testing.T) {
 
 	var normal, digests int
 	for _, s := range hass.all() {
-		if strings.HasPrefix(s.payload["data"].(map[string]any)["tag"].(string), "fn-digest-") {
+		data := s.payload["data"].(map[string]any)
+		if strings.HasPrefix(data["tag"].(string), "fn-digest-") {
 			digests++
+			if data["clickAction"] != "https://frigate.test/review" {
+				t.Errorf("digest tap = %v, want the review list", data["clickAction"])
+			}
 		} else {
 			normal++
 		}

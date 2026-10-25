@@ -105,7 +105,7 @@ func (n *Notifier) sendDigest(
 		Body:     summary,
 		Stage:    sender.StageDigest,
 		Tag:      "fn-digest-" + camera,
-		ClickURL: n.cfg.DashboardURL,
+		ClickURL: n.cfg.ReviewListURL(),
 	}
 
 	// Tag-replacing backends keep one summary; id-editing ones post fresh,

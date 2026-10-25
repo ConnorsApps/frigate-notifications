@@ -158,7 +158,7 @@ func slackContext(m Message) string {
 		parts = append(parts, slackLink(m.ClipURL, "View clip"))
 	}
 	if m.ClickURL != "" {
-		parts = append(parts, slackLink(m.ClickURL, "Dashboard"))
+		parts = append(parts, slackLink(m.ClickURL, "Open in Frigate"))
 	}
 	return strings.Join(parts, "  ·  ")
 }

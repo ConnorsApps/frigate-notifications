@@ -112,7 +112,7 @@ func started() Message {
 		Tag:      reviewTag,
 		Image:    "https://media.test/m/snapshot/e1.jpg?exp=1&sig=abc",
 		Snapshot: "https://media.test/m/snapshot/e1.jpg?exp=1&sig=abc",
-		ClickURL: "https://ha.test/lovelace/frigate",
+		ClickURL: "https://frigate.test/review?id=r1",
 	}
 }
 
@@ -142,7 +142,7 @@ func digest() Message {
 		Body:     "3 more events since 21:37",
 		Tag:      "fn-digest-front_porch",
 		Stage:    StageDigest,
-		ClickURL: "https://ha.test/lovelace/frigate",
+		ClickURL: "https://frigate.test/review",
 	}
 }
 
@@ -159,10 +159,10 @@ func (f *fakeHassClient) Notify(_ context.Context, service string, data map[stri
 	return f.err
 }
 
-func hassData(t *testing.T, m Message, dashboard string) map[string]any {
+func hassData(t *testing.T, m Message) map[string]any {
 	t.Helper()
 	client := &fakeHassClient{}
-	if _, err := NewHass(client, dashboard).Send(context.Background(), config.Target{Type: config.TargetHass, Service: "s"}, m, ""); err != nil {
+	if _, err := NewHass(client).Send(context.Background(), config.Target{Type: config.TargetHass, Service: "s"}, m, ""); err != nil {
 		t.Fatal(err)
 	}
 	return client.payload["data"].(map[string]any)
@@ -170,7 +170,7 @@ func hassData(t *testing.T, m Message, dashboard string) map[string]any {
 
 func TestHassSends(t *testing.T) {
 	client := &fakeHassClient{}
-	h := NewHass(client, "/lovelace/frigate")
+	h := NewHass(client)
 
 	m := started()
 	m.LiveEntity = "camera.front"
@@ -186,7 +186,7 @@ func TestHassSends(t *testing.T) {
 	for key, want := range map[string]any{
 		"tag": reviewTag, "group": "frigate-front_porch", "subtitle": "Alert · Driveway",
 		"when": reviewStart.Unix(), "entity_id": "camera.front", "channel": "Frigate",
-		"url": "/lovelace/frigate", "clickAction": "/lovelace/frigate",
+		"url": m.ClickURL, "clickAction": m.ClickURL,
 		"image": m.Image, "alert_once": true,
 	} {
 		if data[key] != want {
@@ -213,7 +213,7 @@ func attachmentOf(t *testing.T, data map[string]any) (string, any) {
 
 // iOS plays the clip attachment; Android shows the still, animated on 14+.
 func TestHassGivesEachPlatformItsMedia(t *testing.T) {
-	data := hassData(t, ended(), "/lovelace/frigate")
+	data := hassData(t, ended())
 
 	if data["image"] != message.Image {
 		t.Errorf("image = %v, want the still for Android", data["image"])
@@ -226,14 +226,14 @@ func TestHassGivesEachPlatformItsMedia(t *testing.T) {
 	}
 	actions := data["actions"].([]map[string]any)
 	if len(actions) != 1 || actions[0]["uri"] != message.ClipURL {
-		t.Errorf("actions = %v, want the clip only (the tap already opens the dashboard)", actions)
+		t.Errorf("actions = %v, want the clip only (the tap already opens the review)", actions)
 	}
 }
 
 func TestHassMediaFallbacks(t *testing.T) {
 	m := ended()
 	m.Image = ""
-	data := hassData(t, m, "")
+	data := hassData(t, m)
 	if data["video"] != m.Video || data["image"] != nil {
 		t.Errorf("with no still Android gets the clip as video: %v", data)
 	}
@@ -243,7 +243,7 @@ func TestHassMediaFallbacks(t *testing.T) {
 
 	m = ended()
 	m.Video = ""
-	data = hassData(t, m, "")
+	data = hassData(t, m)
 	if data["image"] != m.Image || data["video"] != nil {
 		t.Errorf("with no clip that fits the still goes alone: %v", data)
 	}
@@ -251,13 +251,14 @@ func TestHassMediaFallbacks(t *testing.T) {
 	if url, ct := attachmentOf(t, data); url != m.Image || ct != "gif" {
 		t.Errorf("attachment = %v (%v), want the gif typed gif for iOS", url, ct)
 	}
-	if _, ok := data["url"]; ok {
-		t.Error("no dashboardPath configured, so no tap target")
+	m.ClickURL = ""
+	if data := hassData(t, m); data["clickAction"] != nil || data["url"] != nil {
+		t.Errorf("no ClickURL, so no tap target: %v", data)
 	}
 
 	m = ended()
 	m.Image, m.Video = "", ""
-	if data := hassData(t, m, ""); data["attachment"] != nil || data["image"] != nil || data["video"] != nil {
+	if data := hassData(t, m); data["attachment"] != nil || data["image"] != nil || data["video"] != nil {
 		t.Errorf("no media, no media keys: %v", data)
 	}
 }
@@ -267,7 +268,7 @@ func TestHassMediaFallbacks(t *testing.T) {
 func TestHassLiveViewUntilTheClip(t *testing.T) {
 	m := started()
 	m.LiveEntity = "camera.front"
-	data := hassData(t, m, "")
+	data := hassData(t, m)
 	if data["entity_id"] != "camera.front" {
 		t.Errorf("entity_id = %v, want live view before the clip", data["entity_id"])
 	}
@@ -277,12 +278,12 @@ func TestHassLiveViewUntilTheClip(t *testing.T) {
 
 	m = ended()
 	m.LiveEntity = "camera.front"
-	if data := hassData(t, m, ""); data["entity_id"] != nil {
+	if data := hassData(t, m); data["entity_id"] != nil {
 		t.Errorf("entity_id = %v, want the clip to play on expand instead", data["entity_id"])
 	}
 
 	m.Video = ""
-	if data := hassData(t, m, ""); data["entity_id"] != "camera.front" {
+	if data := hassData(t, m); data["entity_id"] != "camera.front" {
 		t.Errorf("entity_id = %v, want live view kept when no clip fits", data["entity_id"])
 	}
 }
@@ -299,7 +300,7 @@ func TestHassContentTypeIsAnIOSName(t *testing.T) {
 	} {
 		m := started()
 		m.Image = link
-		if _, ct := attachmentOf(t, hassData(t, m, "")); ct != want {
+		if _, ct := attachmentOf(t, hassData(t, m)); ct != want {
 			t.Errorf("%s: content-type = %v, want %v", link, ct, want)
 		}
 	}
@@ -311,7 +312,7 @@ func TestHassUpdatesAreQuiet(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			m := ended()
 			m.Critical = critical
-			data := hassData(t, m, "")
+			data := hassData(t, m)
 
 			if data["alert_once"] != true {
 				t.Error("Android must stay silent on the replace")
@@ -330,7 +331,7 @@ func TestHassUpdatesAreQuiet(t *testing.T) {
 func TestHassCritical(t *testing.T) {
 	m := started()
 	m.Critical = true
-	data := hassData(t, m, "")
+	data := hassData(t, m)
 
 	if data["channel"] != "alarm_stream" || data["ttl"] != 0 || data["priority"] != "high" {
 		t.Errorf("Android critical = %v, want the alarm stream, now, high priority", data)
@@ -348,13 +349,13 @@ func TestHassCritical(t *testing.T) {
 func TestHassDetectionIsNotTimeSensitive(t *testing.T) {
 	m := started()
 	m.Severity = "detection"
-	if data := hassData(t, m, ""); data["push"] != nil || data["subtitle"] != "Detection · Driveway" {
+	if data := hassData(t, m); data["push"] != nil || data["subtitle"] != "Detection · Driveway" {
 		t.Errorf("data = %v", data)
 	}
 }
 
 func TestHassDigest(t *testing.T) {
-	data := hassData(t, digest(), "")
+	data := hassData(t, digest())
 
 	if data["channel"] != "Frigate Digest" || data["importance"] != "low" {
 		t.Errorf("channel/importance = %v/%v, want a low-importance digest channel", data["channel"], data["importance"])
@@ -368,7 +369,7 @@ func TestHassDigest(t *testing.T) {
 }
 
 func TestHassSendErrorIsReturned(t *testing.T) {
-	h := NewHass(&fakeHassClient{err: errors.New("down")}, "")
+	h := NewHass(&fakeHassClient{err: errors.New("down")})
 	if _, err := h.Send(context.Background(), config.Target{Service: "s"}, message, ""); err == nil {
 		t.Error("a Home Assistant failure must reach the caller")
 	}
@@ -434,7 +435,7 @@ func TestNtfyNewAlert(t *testing.T) {
 		t.Errorf("filename = %v, want the camera rather than an event id", body["filename"])
 	}
 	if _, ok := body["actions"]; ok {
-		t.Error("no clip yet, so no action: the tap already opens the dashboard")
+		t.Error("no clip yet, so no action: the tap already opens the review")
 	}
 }
 
@@ -637,7 +638,7 @@ func TestSlackPostsAndReturnsTheRepliedChannel(t *testing.T) {
 	ctxText := blocks[3].(map[string]any)["elements"].([]any)[0].(map[string]any)["text"].(string)
 	// Links, not buttons, and & is escaped inside the URL.
 	if !strings.Contains(ctxText, "<https://media.test/m/play/c1.html?exp=1&amp;sig=abc|View clip>") ||
-		!strings.Contains(ctxText, "<https://ha.test/lovelace/frigate|Dashboard>") {
+		!strings.Contains(ctxText, "<https://frigate.test/review?id=r1|Open in Frigate>") {
 		t.Errorf("context = %q", ctxText)
 	}
 	// When (in the viewer's timezone), how long, where, and how serious.
@@ -739,11 +740,11 @@ func TestSlackLayoutBySituation(t *testing.T) {
 		wantHeader string
 		wantCtx    []string
 	}{
-		{"new alert", started(), "header,section,image,context", "Front Porch", []string{"Driveway", "Alert", "|Dashboard>"}},
+		{"new alert", started(), "header,section,image,context", "Front Porch", []string{"Driveway", "Alert", "|Open in Frigate>"}},
 		{"critical alert", func() Message { m := started(); m.Critical = true; return m }(), "header,section,image,context", "🚨 Front Porch", nil},
 		{"ended update", ended(), "header,section,image,context", "Front Porch", []string{"42s", "View clip"}},
 		{"critical update", critical, "header,section,image,context", "🚨 Front Porch", nil},
-		{"digest", digest(), "header,section,context", "Front Porch", []string{"Dashboard"}},
+		{"digest", digest(), "header,section,context", "Front Porch", []string{"Open in Frigate"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -967,7 +968,7 @@ func TestDiscordPostsAnEmbedAndReturnsTheMessageID(t *testing.T) {
 	if got := embed["footer"].(map[string]any)["text"]; got != "Driveway · Alert · 42s" {
 		t.Errorf("footer = %q, want where, how serious and how long", got)
 	}
-	want := "Walking to the door.\n\n[▶ View clip](https://media.test/m/play/c1.html?exp=1&sig=abc) · [Dashboard](https://ha.test/lovelace/frigate)"
+	want := "Walking to the door.\n\n[▶ View clip](https://media.test/m/play/c1.html?exp=1&sig=abc) · [Open in Frigate](https://frigate.test/review?id=r1)"
 	if embed["description"] != want {
 		t.Errorf("description = %q, want %q", embed["description"], want)
 	}
@@ -1207,7 +1208,7 @@ func TestNewRegistersOnlyConfiguredBackends(t *testing.T) {
 func TestRegistryVerifyCollectsEachBackendsFindings(t *testing.T) {
 	ntfyDown := newServer(t, reply{status: 500})
 	reg := Registry{
-		config.TargetHass: NewHass(&fakeHassClient{}, ""), // a client that can't list services: skipped
+		config.TargetHass: NewHass(&fakeHassClient{}), // a client that can't list services: skipped
 		config.TargetNtfy: NewNtfy(config.NtfyConfig{URL: ntfyDown.URL}),
 	}
 	errs := reg.Verify(context.Background(), map[string]config.Recipient{

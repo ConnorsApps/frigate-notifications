@@ -70,6 +70,20 @@ not an incoming webhook: only bots can edit messages.
 **Discord.** The webhook URL is the whole credential: treat it like a token. It
 is never logged, traced, or written to the audit log (only its id is).
 
+**Links.** With `frigateUIURL` set, tapping a notification opens that review
+in the Frigate UI (`<frigateUIURL>/review?id=<review id>`), and a digest opens
+the review list. Unset, a tap opens nothing in particular. Keep in mind:
+
+- The phone must reach Frigate, so a LAN address works only at home. "View Clip"
+  goes through the [media proxy](how-it-works.md#media-proxy) and works anywhere;
+  before a clip exists, the snapshot is the fallback.
+- Under a sub-path, include it: `https://example.com/frigate`.
+- Behind Frigate's login (port 8971) the review opens only with a valid session;
+  logged out you land on Live after signing in (Frigate ≤ 0.18.2).
+- Slack and Discord show the link to the whole channel, revealing the address.
+- On `hass`, the Companion app decides whether to open it in-app or in the
+  browser; iOS and Android differ.
+
 **Reachability and privacy.** Slack and Discord fetch snapshots from the
 [media proxy](how-it-works.md#media-proxy) themselves, so
 `media.publicBaseURL` must be reachable from their servers, not just phones.

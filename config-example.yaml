@@ -42,9 +42,8 @@ media:
   signingKey: '' # hex; rotating it invalidates every outstanding link
 
 timezone: America/New_York
-dashboardPath: /lovelace/frigate # Home Assistant app: a relative path
-# Everything else can't resolve a relative path, so it gets an absolute link.
-dashboardURL: https://homeassistant.example.com/lovelace/frigate
+# Where phones reach the Frigate UI. A tap opens that review there. Optional.
+frigateUIURL: https://frigate.example.com
 
 # A recipient is a person, reached on one or more targets. Policy (allowCritical,
 # activeHours, maxPerHour) applies once per recipient, then every target gets it.

@@ -120,19 +120,18 @@ type rule struct {
 }
 
 type config struct {
-	Hass          hassConfig           `json:"hass"`
-	Slack         *slackConfig         `json:"slack" description:"Needed by recipients with a slack target"`
-	Ntfy          *ntfyConfig          `json:"ntfy" description:"Needed by recipients with an ntfy target"`
-	MQTT          mqttConfig           `json:"mqtt"`
-	Redis         redisConfig          `json:"redis"`
-	DB            dbConfig             `json:"db"`
-	Media         mediaConfig          `json:"media"`
-	Timezone      string               `json:"timezone" description:"IANA timezone for all wall-clock comparisons (default: Local)"`
-	DashboardPath string               `json:"dashboardPath" description:"Home Assistant path a notification tap opens (hass targets)"`
-	DashboardURL  string               `json:"dashboardURL" pattern:"^(https?://.+)?$" description:"Absolute http(s) URL of the same dashboard, for backends that can't resolve a relative path"`
-	DryRun        bool                 `json:"dryRun" description:"Build and log notifications without sending them"`
-	Recipients    map[string]recipient `json:"recipients" minProperties:"1" description:"Keyed by recipient name, referenced by rules[].to. At least one is required."`
-	Cameras       map[string]camera    `json:"cameras" minProperties:"1" description:"Keyed by Frigate camera name. Reviews from a camera not listed here are ignored. At least one is required."`
-	Rules         []rule               `json:"rules" minItems:"1" description:"Ordered; the first matching rule wins, and position is priority. At least one is required."`
-	LogLevel      string               `json:"logLevel" description:"trace/debug/info/warn/error (default: info)"`
+	Hass         hassConfig           `json:"hass"`
+	Slack        *slackConfig         `json:"slack" description:"Needed by recipients with a slack target"`
+	Ntfy         *ntfyConfig          `json:"ntfy" description:"Needed by recipients with an ntfy target"`
+	MQTT         mqttConfig           `json:"mqtt"`
+	Redis        redisConfig          `json:"redis"`
+	DB           dbConfig             `json:"db"`
+	Media        mediaConfig          `json:"media"`
+	Timezone     string               `json:"timezone" description:"IANA timezone for all wall-clock comparisons (default: Local)"`
+	FrigateUIURL string               `json:"frigateUIURL" pattern:"^(https?://.+)?$" description:"Where phones reach the Frigate UI (a LAN or VPN address is fine); tapping a notification opens the review there. Unset, a tap opens nothing in particular."`
+	DryRun       bool                 `json:"dryRun" description:"Build and log notifications without sending them"`
+	Recipients   map[string]recipient `json:"recipients" minProperties:"1" description:"Keyed by recipient name, referenced by rules[].to. At least one is required."`
+	Cameras      map[string]camera    `json:"cameras" minProperties:"1" description:"Keyed by Frigate camera name. Reviews from a camera not listed here are ignored. At least one is required."`
+	Rules        []rule               `json:"rules" minItems:"1" description:"Ordered; the first matching rule wins, and position is priority. At least one is required."`
+	LogLevel     string               `json:"logLevel" description:"trace/debug/info/warn/error (default: info)"`
 }

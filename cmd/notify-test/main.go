@@ -82,7 +82,7 @@ func main() {
 			Tag:      *tag,
 			Image:    *image,
 			Snapshot: *image,
-			ClickURL: cfg.DashboardURL,
+			ClickURL: cfg.ReviewListURL(),
 		}
 		last = first
 		last.Stage, last.Detail = sender.StageEnded, "The review has ended and the clip is ready."

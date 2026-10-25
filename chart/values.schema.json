@@ -764,15 +764,6 @@
             "null"
           ]
         },
-        "dashboardPath": {
-          "description": "Home Assistant path a notification tap opens (hass targets)",
-          "type": "string"
-        },
-        "dashboardURL": {
-          "description": "Absolute http(s) URL of the same dashboard, for backends that can't resolve a relative path",
-          "pattern": "^(https?://.+)?$",
-          "type": "string"
-        },
         "db": {
           "additionalProperties": false,
           "properties": {
@@ -786,6 +777,11 @@
         "dryRun": {
           "description": "Build and log notifications without sending them",
           "type": "boolean"
+        },
+        "frigateUIURL": {
+          "description": "Where phones reach the Frigate UI (a LAN or VPN address is fine); tapping a notification opens the review there. Unset, a tap opens nothing in particular.",
+          "pattern": "^(https?://.+)?$",
+          "type": "string"
         },
         "hass": {
           "required": [

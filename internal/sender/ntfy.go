@@ -90,7 +90,7 @@ func (n *Ntfy) render(t config.Target, m Message) ntfyMessage {
 	}
 
 	if m.ClipURL != "" {
-		// No dashboard button: tapping the notification opens it.
+		// No Frigate button: tapping the notification opens it.
 		msg.Actions = append(msg.Actions, ntfyAction{Action: "view", Label: "View Clip", URL: m.ClipURL, Clear: true})
 	}
 

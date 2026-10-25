@@ -17,13 +17,12 @@ type HassClient interface {
 
 // Hass delivers through notify.<service>.
 type Hass struct {
-	client        HassClient
-	dashboardPath string
+	client HassClient
 }
 
-// NewHass returns the sender. dashboardPath is the relative path a tap opens.
-func NewHass(client HassClient, dashboardPath string) *Hass {
-	return &Hass{client: client, dashboardPath: dashboardPath}
+// NewHass returns the sender.
+func NewHass(client HassClient) *Hass {
+	return &Hass{client: client}
 }
 
 // Send calls the notify service. It replaces by tag, so there is no ref.
@@ -61,9 +60,9 @@ func (h *Hass) payload(m Message) map[string]any {
 	}
 	data["notification_icon"] = "mdi:cctv"
 
-	if h.dashboardPath != "" {
-		data["clickAction"] = h.dashboardPath
-		data["url"] = h.dashboardPath
+	if m.ClickURL != "" {
+		data["clickAction"] = m.ClickURL // Android
+		data["url"] = m.ClickURL         // iOS
 	}
 
 	// iOS takes "attachment" over "image" and plays a clip in it. Android
